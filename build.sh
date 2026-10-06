@@ -4,7 +4,10 @@
 #
 #   ./build.sh                      build both architectures, keep them local
 #   ./build.sh --push ghcr.io/you/mantel
-#                                   build and push a multi-arch manifest
+#                                   build and push a multi-arch manifest, tagged
+#                                   X.Y.Z, X.Y (the series) and latest
+#
+# Normally run through ./release.sh, which adds the safety checks and the git tag.
 #
 # Requires the buildx plugin and, on an x86 host, QEMU for the arm64 leg:
 #   docker run --privileged --rm tonistiigi/binfmt --install arm64
@@ -40,6 +43,9 @@ args=(
 )
 
 if [ "$PUSH" -eq 1 ]; then
+  # 0.5.8 also publishes as 0.5, so an install can follow a minor line.
+  SERIES="${APP_VERSION%.*}"
+  [ "$SERIES" != "$APP_VERSION" ] && args+=(--tag "${IMAGE}:${SERIES}")
   args+=(--push)
 else
   # A multi-platform result cannot be loaded into the local image store, so a

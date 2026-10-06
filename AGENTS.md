@@ -110,8 +110,8 @@ cd backend && python -m pytest -q && ruff check app tests
 cd frontend && npm run lint && npm test
 ```
 
-CI runs exactly those, on pushes to `main`, `v*` tags, and PRs to `main` — **not** on feature
-branch pushes. Open the PR to get a CI run.
+There is no CI: run those locally before merging. Releases are cut by hand with `./release.sh`
+(bump `VERSION`, merge to `main`, run it; it builds and pushes the multi-arch image, then tags `vX.Y.Z`).
 
 ## Conventions worth matching
 
