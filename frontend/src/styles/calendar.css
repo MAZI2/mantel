@@ -236,7 +236,23 @@
 
 .timegrid__col {
   position: relative;
-  border-left: 1px solid var(--border);
+}
+
+/* Paint the grid above event fills without intercepting event taps. Using the
+   same hour height as the slots keeps lines aligned at every display scale. */
+.timegrid__col::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    repeating-linear-gradient(to bottom, var(--grid-line) 0 1px,
+      transparent 1px var(--hour-height));
+}
+
+.timegrid__col:last-child::after {
+  border-right: 1px solid var(--grid-line);
 }
 
 .timegrid__col[data-today='true'] {
@@ -246,7 +262,6 @@
 .timegrid__slot {
   display: block;
   width: 100%;
-  border-top: 1px solid var(--grid-line);
   min-height: 0;
   min-width: 0;
   padding: 0;
@@ -258,8 +273,8 @@
 
 .event-block {
   position: absolute;
-  border-radius: 8px;
-  padding: 3px 6px;
+  border-radius: 0;
+  padding: 0;
   overflow: hidden;
   text-align: left;
   color: var(--chip-ink);
@@ -267,9 +282,15 @@
   line-height: 1.2;
   min-height: 0;
   min-width: 0;
+}
+
+.event-block__content {
+  position: absolute;
+  inset: 2px 6px calc(0.9em + 1px);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .event-block__title {
@@ -283,9 +304,17 @@
   opacity: 0.75;
 }
 
-/* A 15-minute block is shorter than two lines of text. Without this the two
-   spans shrink below their own line boxes and the text paints on top of itself;
-   with it the block simply clips, so the title stays readable at any text size. */
+.event-block__end {
+  position: absolute;
+  bottom: 1px;
+  left: 6px;
+  right: 6px;
+  font-size: 0.75em;
+  opacity: 0.75;
+}
+
+/* Keep the end at the bottom; clip the heading in very short events instead of
+   stretching their duration or painting the two time labels over each other. */
 .event-block__title,
 .event-block__time {
   flex: 0 0 auto;
@@ -293,7 +322,7 @@
 
 /* Short enough that only one line fits: put the time in front of the title
    instead of below it, so a quick event still says when it is. */
-.event-block[data-compact='true'] {
+.event-block[data-compact='true'] .event-block__content {
   flex-direction: row;
   align-items: baseline;
   gap: 5px;
@@ -301,6 +330,11 @@
 
 .event-block[data-compact='true'] .event-block__time {
   order: -1;
+}
+
+.event-block[data-compact='true'] .event-block__title {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .nowline {
@@ -637,6 +671,65 @@
 
 .modal__error {
   color: var(--danger);
+}
+
+.modal__card.event-details {
+  width: min(420px, 100%);
+  min-width: 0;
+}
+
+.event-details__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.event-details__colour {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 0.5em;
+  flex: 0 0 auto;
+}
+
+.event-details__title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-lg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.event-details__header .iconbtn {
+  flex: 0 0 auto;
+}
+
+.event-details__facts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  font-size: var(--font-sm);
+}
+
+.event-details__facts dt {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  margin-bottom: 2px;
+}
+
+.event-details__facts dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.event-details__notes {
+  margin: 0;
+  font-size: var(--font-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .field {

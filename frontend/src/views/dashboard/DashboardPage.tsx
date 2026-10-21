@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { api } from '../../api/client'
 import { useEntityMutation } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
-import { EventModal } from '../../components/EventModal'
+import { EventDialog } from '../../components/EventDialog'
 import { WIDGETS } from './widgets'
 
 interface Widget {
@@ -168,7 +168,7 @@ export function DashboardPage() {
       )}
 
       {modalOpen && (
-        <EventModal
+        <EventDialog
           event={openEvent}
           defaultStart={newEventAt}
           onClose={() => {

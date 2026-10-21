@@ -2,7 +2,7 @@ import { addDays, format, isSameMonth, startOfWeek } from 'date-fns'
 import { useEffect, useState } from 'react'
 import { useEvents, useSettings, useSyncNow, useUsers } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
-import { EventModal } from '../../components/EventModal'
+import { EventDialog } from '../../components/EventDialog'
 import { usePersonFilter } from '../../hooks/usePersonFilter'
 import { TimeGridView } from './TimeGridView'
 import { rangeFor } from './dateRange'
@@ -152,7 +152,7 @@ export function CalendarPage() {
       </div>
 
       {modalOpen && (
-        <EventModal
+        <EventDialog
           event={editing}
           defaultStart={creatingAt}
           onClose={() => {

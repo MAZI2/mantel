@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { endFor, toLocalInput } from './eventTimes'
+import { allDayEndFor, allDayInput, endFor, toLocalInput, utcMidnight } from './eventTimes'
 
 describe('endFor', () => {
   it('puts the end one hour after a start nobody has overridden', () => {
@@ -52,5 +52,33 @@ describe('endFor', () => {
 describe('toLocalInput', () => {
   it('pads every part, because the input silently rejects a short one', () => {
     expect(toLocalInput(new Date(2026, 0, 5, 9, 7))).toBe('2026-01-05T09:07')
+  })
+})
+
+describe('all-day date editing', () => {
+  it('round-trips single and multiple days without extending the exclusive end', () => {
+    for (const [start, end] of [
+      ['2026-10-21T00:00:00Z', '2026-10-22T00:00:00Z'],
+      ['2026-10-24T00:00:00Z', '2026-10-26T00:00:00Z'],
+      ['2026-12-31T00:00:00Z', '2027-01-02T00:00:00Z'],
+    ]) {
+      expect(utcMidnight(allDayInput(start))).toBe(new Date(start).toISOString())
+      expect(utcMidnight(allDayInput(end, true), 1)).toBe(new Date(end).toISOString())
+    }
+  })
+
+  it('shows the final included date instead of the next day', () => {
+    expect(allDayInput('2026-10-22T00:00:00Z', true)).toBe('2026-10-21')
+    expect(allDayInput('2027-01-01T00:00:00Z', true)).toBe('2026-12-31')
+  })
+
+  it('moves an inclusive range across DST in whole calendar days', () => {
+    expect(allDayEndFor('2026-10-24', '2026-10-21', '2026-10-23')).toBe('2026-10-26')
+    expect(allDayEndFor('2026-03-28', '2026-03-21', '2026-03-23')).toBe('2026-03-30')
+    expect(allDayEndFor('2027-01-01', '2026-12-31', '2026-12-31')).toBe('2027-01-01')
+  })
+
+  it('leaves an end date alone while the start is incomplete', () => {
+    expect(allDayEndFor('', '2026-10-21', '2026-10-23')).toBe('2026-10-23')
   })
 })

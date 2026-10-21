@@ -14,10 +14,10 @@ interface Props {
   onSelectSlot: (start: Date) => void
 }
 
-/** Below this height an event block cannot show a title and a time on separate lines.
+/** Below this height a block cannot show a title, start and end on separate lines.
  *  Sized for the largest text scale ("wall"), so the switch happens a little early on
  *  the smaller ones rather than too late on the display that matters most. */
-const TWO_LINES_PX = 40
+const TWO_LINES_PX = 60
 
 /** A fixed set of day columns with a vertically scrolling timeline. */
 export function TimeGridView({
@@ -154,7 +154,7 @@ export function DayColumn({
     )
   }
   return (
-    <div className="timegrid__col" data-today={isToday(day)}>
+    <div className="timegrid__col" data-today={isToday(day)} style={{ ['--hour-height' as string]: `${hourHeight}px` }}>
       {hours.map((h) => (
         <button
           key={h}
@@ -171,6 +171,7 @@ export function DayColumn({
           // A block this short cannot fit a title above a time; the CSS
           // lays those out on one line instead.
           data-compact={height < TWO_LINES_PX}
+          aria-label={`${event.title}, ${formatTime(new Date(event.start_at), use24h)} – ${formatTime(new Date(event.end_at), use24h)}`}
           style={{
             top: top - dayStartHour * hourHeight,
             height,
@@ -180,8 +181,11 @@ export function DayColumn({
           }}
           onClick={() => onSelectEvent(event)}
         >
-          <span className="event-block__title">{event.title}</span>
-          <span className="event-block__time">{formatTime(new Date(event.start_at), use24h)}</span>
+          <span className="event-block__content">
+            <span className="event-block__title">{event.title}</span>
+            <span className="event-block__time">{formatTime(new Date(event.start_at), use24h)}</span>
+          </span>
+          <span className="event-block__end">{formatTime(new Date(event.end_at), use24h)}</span>
         </button>
       ))}
       {isToday(day) && <NowLine dayStartHour={dayStartHour} hourHeight={hourHeight} />}
@@ -249,12 +253,30 @@ function layout(events: CalendarEvent[], day: Date, hourHeight: number): Positio
       const e = new Date(event.end_at)
       const startH = Math.max(0, (s.getTime() - dayStart.getTime()) / 3_600_000)
       const endH = Math.min(24, (e.getTime() - dayStart.getTime()) / 3_600_000)
-      return { event, startH, endH: Math.max(endH, startH + 0.25) }
+      return { event, startH, endH: Math.max(endH, startH) }
     })
     .sort((a, b) => a.startH - b.startH || b.endH - a.endH)
 
-  const columns: number[] = []
-  const placed = spans.map((span) => {
+  // Each connected group of overlapping events shares the width. A later event
+  // with no overlaps must regain the whole column, even if the morning was busy.
+  let columns: number[] = []
+  let group: (typeof spans[number] & { col: number })[] = []
+  const placed: Positioned[] = []
+  const finishGroup = () => {
+    for (const p of group) {
+      placed.push({
+        event: p.event,
+        top: p.startH * hourHeight,
+        height: (p.endH - p.startH) * hourHeight,
+        left: (p.col / columns.length) * 100,
+        width: 100 / columns.length,
+      })
+    }
+    columns = []
+    group = []
+  }
+  for (const span of spans) {
+    if (columns.length && columns.every((end) => end <= span.startH)) finishGroup()
     let col = columns.findIndex((endsAt) => endsAt <= span.startH)
     if (col === -1) {
       col = columns.length
@@ -262,17 +284,10 @@ function layout(events: CalendarEvent[], day: Date, hourHeight: number): Positio
     } else {
       columns[col] = span.endH
     }
-    return { ...span, col }
-  })
-
-  const total = Math.max(1, columns.length)
-  return placed.map((p) => ({
-    event: p.event,
-    top: p.startH * hourHeight,
-    height: Math.max(26, (p.endH - p.startH) * hourHeight - 2),
-    left: (p.col / total) * 100,
-    width: (1 / total) * 100 - 1,
-  }))
+    group.push({ ...span, col })
+  }
+  finishGroup()
+  return placed
 }
 
 export function formatHour(hour: number, use24h: boolean): string {

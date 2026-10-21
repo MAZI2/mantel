@@ -37,6 +37,25 @@ export function endFor(
 
 export const DEFAULT_MINUTES = 60
 
+/** All-day boundaries are dates in UTC; the editor shows the inclusive last day. */
+export function allDayInput(iso: string, isEnd = false): string {
+  return utcMidnight(iso, isEnd ? -1 : 0).slice(0, 10)
+}
+
+export function utcMidnight(input: string, addDays = 0): string {
+  const [y, m, d] = input.slice(0, 10).split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + addDays)).toISOString()
+}
+
+/** Move date ranges in whole days, unaffected by daylight-saving clock changes. */
+export function allDayEndFor(nextStart: string, previousStart: string, currentEnd: string): string {
+  if (![nextStart, previousStart, currentEnd].every((v) => /^\d{4}-\d{2}-\d{2}$/.test(v))) {
+    return currentEnd
+  }
+  const days = Math.max(0, Math.round((Date.parse(currentEnd) - Date.parse(previousStart)) / 86_400_000))
+  return utcMidnight(nextStart, days).slice(0, 10)
+}
+
 /** A `datetime-local` value, or null if it isn't a complete one yet.
  *
  *  `new Date()` must not be trusted to decide that. It reads "2026-08-" -- which is

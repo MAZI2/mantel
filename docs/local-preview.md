@@ -32,6 +32,16 @@ to that event in Mantel; **Default colour** restores its imported Google event c
 series colour or calendar colour. After upgrading, the next sync also fetches colours
 for existing Google events in the configured sync window.
 
+Timed events have square corners and fill their exact time range and available column
+width. Hour lines remain visible over their colours, and the end time appears at the
+bottom at 75% of the start-time text size. All-day events keep their rounded chips;
+their editor shows inclusive start/end dates, so changing colour does not extend them
+into another day.
+
+Tapping an event first opens a compact summary with its full title, dates/times,
+calendar, location and notes. Titles wrap on phones. **Edit** opens the full form;
+**Delete** removes the event directly. Read-only calendars show details only.
+
 The separate Compose project binds only to localhost. It uses a fresh named database
 volume, ignores the production `.env`, and disables calendar sync and release checks.
 Browser tests mock calendar data and settings, with a disposable local calendar for

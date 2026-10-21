@@ -7,7 +7,7 @@ import { pickableCalendars } from './pickableCalendars'
 import { moveNote } from './moveNote'
 import { calendarsForProfile, initialSelection, profilesWithCalendars } from './eventProfiles'
 import { rememberLastTarget } from './lastEventTarget'
-import { DEFAULT_MINUTES, endFor, toLocalInput } from './eventTimes'
+import { allDayEndFor, allDayInput, DEFAULT_MINUTES, endFor, toLocalInput, utcMidnight } from './eventTimes'
 import { acquireReloadGuard } from '../hooks/useVersionPoll'
 import { type Freq, RecurrencePicker, buildRule, parseRule } from './RecurrencePicker'
 import { PALETTE } from '../views/settings/palette'
@@ -59,10 +59,11 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
         calendars.find((c) => c.id === calendarId),
       )
   const [start, setStart] = useState(
-    toLocalInput(event ? new Date(event.start_at) : (defaultStart ?? new Date())),
+    event?.all_day ? allDayInput(event.start_at)
+      : toLocalInput(event ? new Date(event.start_at) : (defaultStart ?? new Date())),
   )
   const [end, setEnd] = useState(
-    toLocalInput(
+    event?.all_day ? allDayInput(event.end_at, true) : toLocalInput(
       event
         ? new Date(event.end_at)
         : new Date((defaultStart ?? new Date()).getTime() + DEFAULT_MINUTES * 60_000),
@@ -98,6 +99,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
     setError(null)
     if (!title.trim()) return setError('Give the event a title.')
     if (calendarId === null) return setError('No writable calendar available.')
+    if (!start || !end) return setError('Choose a start and end date.')
     const startISO = allDay ? utcMidnight(start, 0) : new Date(start).toISOString()
     const endISO = allDay ? utcMidnight(end, 1) : new Date(end).toISOString()
     if (endISO <= startISO) return setError('The end time must be after the start time.')
@@ -255,12 +257,12 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
           <label className="field">
             <span>Starts</span>
             <input
-              type="datetime-local"
+              type={allDay ? 'date' : 'datetime-local'}
               value={start}
               onChange={(e) => {
                 const next = e.target.value
                 setStart(next)
-                setEnd(endFor(next, start, end, endEdited))
+                setEnd(allDay ? allDayEndFor(next, start, end) : endFor(next, start, end, endEdited))
               }}
               disabled={readOnly}
             />
@@ -268,7 +270,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
           <label className="field">
             <span>Ends</span>
             <input
-              type="datetime-local"
+              type={allDay ? 'date' : 'datetime-local'}
               value={end}
               onChange={(e) => {
                 setEnd(e.target.value)
@@ -283,14 +285,25 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
           freq={repeat.freq}
           byday={repeat.byday}
           until={repeat.until}
-          start={new Date(start)}
+          start={new Date(allDay ? `${start}T00:00` : start)}
           disabled={readOnly}
           onChange={setRepeat}
         />
 
         <button
           className={`toggle ${allDay ? 'toggle--on' : ''}`}
-          onClick={() => !readOnly && setAllDay(!allDay)}
+          onClick={() => {
+            if (readOnly) return
+            if (allDay) {
+              setStart(start ? `${start}T00:00` : '')
+              setEnd(end ? `${utcMidnight(end, 1).slice(0, 10)}T00:00` : '')
+            } else {
+              setStart(start.slice(0, 10))
+              setEnd(end.slice(0, 10))
+            }
+            setEndEdited(true)
+            setAllDay(!allDay)
+          }}
           disabled={readOnly}
         >
           {allDay ? '☑' : '☐'} All day
@@ -340,12 +353,3 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
     document.body,
   )
 }
-
-/** All-day events mean whole calendar dates, so they are stored on UTC midnight
- *  boundaries with an exclusive end -- never shifted by the viewer's timezone. */
-function utcMidnight(localInput: string, addDays: number): string {
-  const [y, m, d] = localInput.slice(0, 10).split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d + addDays)).toISOString()
-}
-
-/** <input type="datetime-local"> wants wall-clock local time with no offset. */

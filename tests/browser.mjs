@@ -8,8 +8,9 @@ const errors = []
 
 async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal', allDay = false,
   weekStartsOn = 1, dayStartHour = 0, dayEndHour = 24,
+  timezoneId = 'Europe/Ljubljana', fixtureEvents = null,
   time = '2026-10-21T12:00:00+02:00', path = '/' } = {}) {
-  const context = await browser.newContext({ baseURL, viewport, timezoneId: 'Europe/Ljubljana',
+  const context = await browser.newContext({ baseURL, viewport, timezoneId,
     hasTouch: true, serviceWorkers: 'block' })
   const page = await context.newPage()
   page.on('pageerror', (error) => errors.push(error.message))
@@ -27,12 +28,12 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
   const eventRanges = []
   await context.route('**/api/events?*', (route) => {
     eventRanges.push(new URL(route.request().url()).searchParams.get('start'))
-    return route.fulfill({ json: allDay ? [{
+    return route.fulfill({ json: fixtureEvents ?? (allDay ? [{
       id: 9001, calendar_id: 1, calendar_name: 'Family', title: 'All-day test',
       color: '#38bdf8', user_id: null, start_at: '2026-10-21T00:00:00Z',
       end_at: '2026-10-22T00:00:00Z', all_day: true, editable: true,
       recurring: false, origin: 'local', sync_state: 'synced',
-    }] : [] })
+    }] : []) })
   })
   await page.goto(path)
   await page.waitForFunction(({ scale, weekStartsOn, dayStartHour, dayEndHour }) => document.documentElement.dataset.scale === scale &&
@@ -107,6 +108,195 @@ try {
     }
   }
   console.log('PASS: full-day scrolling, compact rows and no horizontal navigation at 18 size/scale/all-day combinations')
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 720 }]) {
+    for (const scale of ['normal', 'large', 'wall']) {
+      const timed = (id, title, start, end) => ({
+        id, calendar_id: 1, calendar_name: 'Family', title, color: '#38bdf8',
+        user_id: null, start_at: `2026-10-21T${start}:00+02:00`,
+        end_at: `2026-10-21T${end}:00+02:00`, all_day: false,
+        recurring: false, editable: true, origin: 'local', sync_state: 'synced',
+      })
+      const { context, page } = await open({ viewport, scale, allDay: true, fixtureEvents: [
+        timed(9101, 'Morning overlap A', '08:00', '10:00'),
+        timed(9102, 'Morning overlap B', '09:00', '10:00'),
+        timed(9103, 'Full-width afternoon', '10:00', '13:00'),
+        timed(9104, 'Following hour', '13:00', '14:00'),
+        timed(9105, 'Five minutes', '14:00', '14:05'),
+      ] })
+      const block = page.locator('.event-block').filter({ hasText: 'Full-width afternoon' })
+      await block.scrollIntoViewIfNeeded()
+      const geometry = await block.evaluate((el) => {
+        const rect = (node) => {
+          const r = node.getBoundingClientRect()
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height, width: r.width }
+        }
+        const col = el.parentElement
+        const slots = col.querySelectorAll('.timegrid__slot')
+        const overlay = getComputedStyle(col, '::after')
+        const start = el.querySelector('.event-block__time')
+        const end = el.querySelector('.event-block__end')
+        const following = [...col.querySelectorAll('.event-block')].find((e) => e.textContent.includes('Following hour'))
+        const overlaps = [...col.querySelectorAll('.event-block')].filter((e) => e.textContent.includes('Morning overlap'))
+        return { block: rect(el), column: rect(col), slot: rect(slots[10]),
+          endSlot: rect(slots[13]), following: rect(following), end: rect(end),
+          short: rect(col.querySelector('[aria-label^="Five minutes,"]')),
+          overlaps: overlaps.map(rect), radius: getComputedStyle(el).borderRadius,
+          startSize: parseFloat(getComputedStyle(start).fontSize), endSize: parseFloat(getComputedStyle(end).fontSize),
+          startText: start.textContent, endText: end.textContent,
+          overlay: { background: overlay.backgroundImage, pointerEvents: overlay.pointerEvents, zIndex: overlay.zIndex },
+          hit: el.contains(document.elementFromPoint(rect(el).left + 2, rect(slots[11]).top + 0.5)),
+        }
+      })
+      const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 0.15, `${message}: ${actual} vs ${expected}`)
+      near(geometry.block.left, geometry.column.left, 'left grid edge')
+      near(geometry.block.right, geometry.column.right, 'right grid edge')
+      near(geometry.block.top, geometry.slot.top, 'top grid edge')
+      near(geometry.block.bottom, geometry.endSlot.top, 'bottom grid edge')
+      near(geometry.block.bottom, geometry.following.top, 'consecutive events have a gap')
+      near(geometry.overlaps[0].right, geometry.overlaps[1].left, 'overlap lanes have a gap')
+      near(geometry.overlaps[1].right, geometry.column.right, 'overlap lanes leave space on the right')
+      near(geometry.short.height, geometry.slot.height / 12, 'short events must retain their actual duration')
+      assert.equal(geometry.radius, '0px')
+      assert.ok(Math.abs(geometry.endSize - geometry.startSize * 0.75) < 0.01)
+      near(geometry.end.bottom, geometry.block.bottom - 1, 'end label is not above the bottom edge')
+      assert.equal(geometry.startText, '10:00')
+      assert.equal(geometry.endText, '13:00')
+      assert.ok(geometry.overlay.background.includes('repeating-linear-gradient'))
+      assert.equal(geometry.overlay.pointerEvents, 'none')
+      assert.ok(Number(geometry.overlay.zIndex) > 0)
+      assert.ok(geometry.hit, 'grid lines blocked an event tap')
+      if (viewport.width === 1280 && scale === 'normal' && process.env.ARTIFACT_DIR) {
+        await page.screenshot({ path: `${process.env.ARTIFACT_DIR}/timed-events.png` })
+      }
+      await block.click()
+      await page.getByRole('dialog').waitFor()
+      await context.close()
+    }
+  }
+  console.log('PASS: square timed events align on every edge, retain short durations, show 75%-size end times and allow taps through the grid')
+
+  for (const [viewport, scale] of [
+    [{ width: 320, height: 640 }, 'normal'],
+    [{ width: 390, height: 844 }, 'wall'],
+    [{ width: 600, height: 400 }, 'normal'],
+    [{ width: 1280, height: 720 }, 'normal'],
+  ]) {
+    const { context, page } = await open({ viewport, scale })
+    let calendarId
+    try {
+      const response = await context.request.post('/api/calendars', { data: { name: 'Quick event details' } })
+      assert.equal(response.status(), 201)
+      calendarId = (await response.json()).id
+      const longTitle = `Family appointment with a full title that must wrap on mobile ${'UnbrokenTitle'.repeat(5)}`
+      const eventResponse = await context.request.post('/api/events', { data: {
+        calendar_id: calendarId, title: longTitle, location: 'Main reception, second floor',
+        description: 'Bring the documents.\nMeet by the entrance.',
+        start_at: '2026-10-21T14:00:00+02:00', end_at: '2026-10-21T15:00:00+02:00',
+      } })
+      assert.equal(eventResponse.status(), 201)
+      const eventId = (await eventResponse.json()).id
+      await context.unroute('**/api/events?*')
+      await page.reload()
+      let mutations = 0
+      context.on('request', (request) => {
+        if (new URL(request.url()).pathname === `/api/events/${eventId}` && ['PATCH', 'DELETE'].includes(request.method())) mutations += 1
+      })
+      const block = page.locator('.event-block').filter({ hasText: longTitle })
+      await block.click()
+      const details = page.locator('.event-details')
+      await details.waitFor()
+      assert.equal(await page.getByRole('heading', { name: longTitle, exact: true }).count(), 1)
+      assert.equal(await details.locator('input, select, textarea').count(), 0, 'opening an event should show details before the form')
+      assert.ok((await details.textContent()).includes('Wed, 21 Oct 2026 · 14:00 – 15:00'))
+      assert.ok((await details.textContent()).includes('Quick event details'))
+      assert.ok((await details.textContent()).includes('Main reception, second floor'))
+      assert.ok((await details.textContent()).includes('Bring the documents.\nMeet by the entrance.'))
+      const titleFits = await details.evaluate((el) => {
+        const title = el.querySelector('.event-details__title')
+        const r = title.getBoundingClientRect()
+        const card = el.getBoundingClientRect()
+        return title.scrollWidth <= title.clientWidth + 1 && title.scrollHeight <= title.clientHeight + 1 &&
+          r.left >= card.left && r.right <= card.right && card.left >= 0 && card.right <= innerWidth && card.width <= 420
+      })
+      assert.ok(titleFits, 'full title must wrap without clipping or horizontal overflow')
+      if (viewport.width === 390 && process.env.ARTIFACT_DIR) {
+        await page.screenshot({ path: `${process.env.ARTIFACT_DIR}/event-details-phone.png` })
+      }
+      await page.keyboard.press('Shift+Tab')
+      assert.equal(await page.getByRole('button', { name: 'Edit', exact: true }).evaluate((el) => el === document.activeElement), true)
+      await page.keyboard.press('Tab')
+      assert.equal(await page.getByRole('button', { name: 'Close event details', exact: true }).evaluate((el) => el === document.activeElement), true)
+      await page.keyboard.press('Escape')
+      await details.waitFor({ state: 'hidden' })
+      assert.equal(await block.evaluate((el) => el === document.activeElement), true)
+      assert.equal(mutations, 0, 'viewing or dismissing details must not change an event')
+
+      await block.click()
+      await page.locator('.modal').click({ position: { x: 1, y: 1 } })
+      await details.waitFor({ state: 'hidden' })
+      await block.click()
+      await page.getByRole('button', { name: 'Edit', exact: true }).click()
+      assert.equal(await page.getByLabel('Title', { exact: true }).inputValue(), longTitle)
+      await page.getByLabel('Title', { exact: true }).fill(`${longTitle} updated`)
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      await page.locator('.modal').waitFor({ state: 'hidden' })
+      const updated = page.locator('.event-block').filter({ hasText: `${longTitle} updated` })
+      await updated.click()
+
+      let failDelete = true
+      let releaseDelete
+      const pendingDelete = new Promise((resolve) => { releaseDelete = resolve })
+      await context.route(`**/api/events/${eventId}`, async (route) => {
+        if (route.request().method() !== 'DELETE' || !failDelete) return route.continue()
+        await pendingDelete
+        return route.fulfill({ status: 503, json: { error: { message: 'Could not reach the calendar. Try again.' } } })
+      })
+      const deletion = page.getByRole('button', { name: 'Delete', exact: true })
+      await deletion.click()
+      await page.getByRole('button', { name: 'Deleting…', exact: true }).waitFor()
+      assert.equal(await page.getByRole('button', { name: 'Edit', exact: true }).isDisabled(), true)
+      releaseDelete()
+      await page.getByRole('alert').filter({ hasText: 'Could not reach the calendar. Try again.' }).waitFor()
+      failDelete = false
+      await deletion.click()
+      await page.locator('.modal').waitFor({ state: 'hidden' })
+      await updated.waitFor({ state: 'hidden' })
+      assert.equal((await context.request.get(`/api/events/${eventId}`)).status(), 404)
+    } finally {
+      if (calendarId) await context.request.delete(`/api/calendars/${calendarId}`)
+      await context.close()
+    }
+  }
+  for (const [start, end, expected] of [
+    ['2026-10-21', '2026-10-22', 'Wed, 21 Oct 2026 · All day'],
+    ['2026-10-24', '2026-10-26', 'Sat, 24 Oct 2026 – Sun, 25 Oct 2026 · All day'],
+  ]) {
+    const { context, page } = await open({ timezoneId: 'America/Los_Angeles', fixtureEvents: [{
+      id: 9201, calendar_id: 1, calendar_name: 'Read-only calendar', title: 'All-day information',
+      color: '#38bdf8', user_id: null, start_at: `${start}T00:00:00Z`, end_at: `${end}T00:00:00Z`,
+      all_day: true, editable: false, recurring: true, recurrence_text: 'Every week', origin: 'google', sync_state: 'synced',
+    }] })
+    await page.locator('.timegrid__allday .chip').first().click()
+    const details = page.locator('.event-details')
+    await details.waitFor()
+    assert.ok((await details.textContent()).includes(expected))
+    assert.ok((await details.textContent()).includes('Every week'))
+    assert.ok((await details.textContent()).includes('This calendar is read-only.'))
+    assert.equal(await details.getByRole('button', { name: 'Edit', exact: true }).count(), 0)
+    assert.equal(await details.getByRole('button', { name: 'Delete', exact: true }).count(), 0)
+    await page.getByRole('button', { name: 'Close event details', exact: true }).click()
+    await details.waitFor({ state: 'hidden' })
+    await context.route('**/api/dashboard/widgets', (route) => route.fulfill({ json: [{
+      id: 9301, widget_type: 'upcoming_events', size: 'medium', position: 0, config: {},
+    }] }))
+    await page.goto('/dashboard')
+    await page.locator('.agenda__main').filter({ hasText: 'All-day information' }).click()
+    await details.waitFor()
+    assert.ok((await details.textContent()).includes(expected))
+    await context.close()
+  }
+  console.log('PASS: compact event details wrap full mobile titles, preserve all-day dates, respect read-only calendars and support editing, deletion and retry')
 
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 720 }]) {
     const { context, page } = await open({ viewport })
@@ -267,6 +457,7 @@ try {
       assert.equal(await event.evaluate((el) => el.style.background),
         colour === '#123abc' ? 'rgb(236, 72, 153)' : 'rgb(18, 58, 188)')
       await event.click()
+      await page.getByRole('button', { name: 'Edit', exact: true }).click()
       if (colour) await page.getByLabel('Custom event colour', { exact: true }).fill(colour)
       else await page.getByRole('button', { name: 'Default colour', exact: true }).click()
       const savedResponse = page.waitForResponse((response) =>
@@ -286,6 +477,70 @@ try {
     await colourTest.context.close()
   }
   console.log('PASS: one-hour defaults and per-event preset/custom colours persist and reset in the UI')
+
+  for (const timezoneId of ['Europe/Ljubljana', 'America/Los_Angeles', 'Pacific/Auckland']) {
+    const { context, page } = await open({ timezoneId })
+    let calendarId
+    try {
+      const response = await context.request.post('/api/calendars', { data: { name: `All-day dates ${timezoneId}` } })
+      assert.equal(response.status(), 201)
+      calendarId = (await response.json()).id
+      await context.unroute('**/api/events?*')
+      for (const [title, start, end, lastDay, chips] of [
+        ['Single all-day', '2026-10-21', '2026-10-22', '2026-10-21', 1],
+        ['All-day across DST', '2026-10-24', '2026-10-26', '2026-10-25', 2],
+      ]) {
+        const createdResponse = await context.request.post('/api/events', { data: {
+          calendar_id: calendarId, title, all_day: true,
+          start_at: `${start}T00:00:00Z`, end_at: `${end}T00:00:00Z`,
+        } })
+        assert.equal(createdResponse.status(), 201)
+        const created = await createdResponse.json()
+        for (const colour of ['#ec4899', '#123abc', null]) {
+          await page.reload()
+          const event = page.locator('.timegrid__allday .chip').filter({ hasText: title })
+          await event.first().waitFor()
+          assert.equal(await event.count(), chips, `${title} gained a day in ${timezoneId}`)
+          await event.first().click()
+          await page.getByRole('button', { name: 'Edit', exact: true }).click()
+          assert.equal(await page.getByLabel('Starts', { exact: true }).getAttribute('type'), 'date')
+          assert.equal(await page.getByLabel('Starts', { exact: true }).inputValue(), start)
+          assert.equal(await page.getByLabel('Ends', { exact: true }).inputValue(), lastDay)
+          if (colour) await page.getByLabel('Custom event colour', { exact: true }).fill(colour)
+          else await page.getByRole('button', { name: 'Default colour', exact: true }).click()
+          const savedResponse = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/events/${created.id}` && r.request().method() === 'PATCH')
+          await page.getByRole('button', { name: 'Save', exact: true }).click()
+          const saved = await (await savedResponse).json()
+          assert.equal(saved.start_at.slice(0, 10), start)
+          assert.equal(saved.end_at.slice(0, 10), end)
+          assert.equal(saved.color_override, colour)
+          await page.locator('.modal').waitFor({ state: 'hidden' })
+        }
+        await page.reload()
+        await page.locator('.timegrid__allday .chip').filter({ hasText: title }).first().waitFor()
+        assert.equal(await page.locator('.timegrid__allday .chip').filter({ hasText: title }).count(), chips)
+      }
+      // Creating an all-day event uses inclusive dates too, without changing the
+      // one-hour default for the usual timed-event flow.
+      await page.getByRole('button', { name: 'Add event', exact: true }).click()
+      await page.getByRole('textbox', { name: 'Title', exact: true }).fill('New all-day')
+      await page.getByRole('combobox', { name: 'Calendar', exact: true }).selectOption(String(calendarId))
+      await page.getByRole('button', { name: 'All day' }).click()
+      await page.getByLabel('Starts', { exact: true }).fill('2026-10-21')
+      await page.getByLabel('Ends', { exact: true }).fill('2026-10-21')
+      const createdResponse = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/events' && r.request().method() === 'POST')
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      const created = await (await createdResponse).json()
+      assert.equal(created.start_at.slice(0, 10), '2026-10-21')
+      assert.equal(created.end_at.slice(0, 10), '2026-10-22')
+      await page.locator('.modal').waitFor({ state: 'hidden' })
+      await page.locator('.timegrid__allday .chip').filter({ hasText: 'New all-day' }).waitFor()
+    } finally {
+      if (calendarId) await context.request.delete(`/api/calendars/${calendarId}`)
+      await context.close()
+    }
+  }
+  console.log('PASS: repeated all-day colour edits preserve single/multiple dates across DST and three time zones; new all-day events save correctly')
 
   for (const scenario of [
     { weekStartsOn: 1, time: '2026-10-25T23:59:45+01:00', title: 'Oct 26 – Nov 1, 2026' },
