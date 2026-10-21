@@ -55,6 +55,9 @@ try {
         assert.equal(await page.locator('.timegrid__dayhead').count(), 7)
         assert.equal(await page.locator('.viewtabs, .navviews, .timestrip').count(), 0)
         assert.equal(await page.getByRole('link', { name: 'Calendar', exact: true }).count(), 1)
+        const syncBounds = await page.getByRole('button', { name: 'Sync now', exact: true }).boundingBox()
+        assert.ok(syncBounds.x >= 0 && syncBounds.x + syncBounds.width <= viewport.width,
+          'Sync now is outside the screen')
         if (allDay) await page.getByRole('button', { name: 'All-day test' }).waitFor()
         const body = page.locator('.timegrid__body')
         const aligned = await page.evaluate(() => {
@@ -104,6 +107,71 @@ try {
     }
   }
   console.log('PASS: full-day scrolling, compact rows and no horizontal navigation at 18 size/scale/all-day combinations')
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 720 }]) {
+    const { context, page } = await open({ viewport })
+    let syncRequests = 0
+    let hasSynced = false
+    let finishSync
+    let syncStarted
+    const started = new Promise((resolve) => { syncStarted = resolve })
+    const pending = new Promise((resolve) => { finishSync = resolve })
+    let serverError = false
+    let calendarError = false
+    await context.route('**/api/events?*', (route) => route.fulfill({ json: hasSynced ? [{
+      id: 9002, calendar_id: 1, calendar_name: 'Family', title: 'Arrived after sync',
+      color: '#fbd75b', color_override: null, remote_color: '#fbd75b', user_id: null,
+      start_at: '2026-10-21T12:00:00Z', end_at: '2026-10-21T13:00:00Z',
+      all_day: false, recurring: false, editable: true, origin: 'google', sync_state: 'synced',
+    }] : [] }))
+    await context.route('**/api/sync/status', (route) => route.fulfill({ json: {
+      google_configured: true, icloud_linked: false, sync_enabled: true,
+      interval_seconds: 300, accounts_needing_reauth: [], pending_pushes: 0,
+      calendars: calendarError ? [{ calendar_id: 1, name: 'Family Google', sync_enabled: true,
+        sync_error: 'Google connection failed', last_synced_at: null, account_email: 'test@example.com' }] : [],
+    } }))
+    await context.route('**/api/sync/run', async (route) => {
+      assert.equal(route.request().method(), 'POST')
+      syncRequests += 1
+      syncStarted()
+      await pending
+      if (serverError) return route.fulfill({ status: 503,
+        json: { error: { code: 'unavailable', message: 'Sync service unavailable' } } })
+      hasSynced = true
+      return route.fulfill({ json: { pulled: 1, pushed: 0, new_calendars: 0 } })
+    })
+    const button = page.getByRole('button', { name: 'Sync now', exact: true })
+    await button.click()
+    await started
+    await page.waitForFunction(() => document.querySelector('[aria-label="Sync now"]')?.disabled)
+    assert.equal(await button.textContent(), 'Syncing…')
+    await button.evaluate((el) => { el.click(); el.click() })
+    assert.equal(syncRequests, 1, 'a pending sync must not be started again')
+    finishSync()
+    await page.locator('.event-block').filter({ hasText: 'Arrived after sync' }).waitFor()
+    await page.waitForFunction(() => document.querySelector('[aria-label="Sync now"]')?.textContent === 'Synced')
+    await page.clock.runFor(3500)
+    await page.waitForFunction(() => document.querySelector('[aria-label="Sync now"]')?.textContent === 'Sync now')
+
+    serverError = true
+    await button.click()
+    await page.getByRole('alert').filter({ hasText: 'Sync service unavailable' }).waitFor()
+    assert.equal(await button.isEnabled(), true)
+    await page.getByRole('button', { name: 'Dismiss sync error', exact: true }).click()
+    await page.getByRole('alert').waitFor({ state: 'hidden' })
+
+    serverError = false
+    calendarError = true
+    await button.click()
+    await page.getByRole('alert').filter({ hasText: 'Family Google: Google connection failed' }).waitFor()
+    assert.equal(await button.isEnabled(), true)
+    calendarError = false
+    await button.click()
+    await page.waitForFunction(() => document.querySelector('[aria-label="Sync now"]')?.textContent === 'Synced')
+    await page.getByRole('alert').waitFor({ state: 'hidden' })
+    await context.close()
+  }
+  console.log('PASS: toolbar sync posts once, refreshes events, reports failures and supports retry on phone and desktop')
 
   const { context, page, eventRanges } = await open()
   await titleIs(page, 'Oct 19 – 25, 2026')

@@ -23,6 +23,10 @@ port if needed (use the same value for subsequent commands).
 grid. Existing saved hours are respected; a fresh database defaults to 07:00–22:00.
 Choose 00:00–24:00 if you want the entire day.
 
+The calendar toolbar's **Sync now** button runs the same Google/iCloud sync as
+Settings and refreshes the visible events immediately. It shows progress and any
+reported sync errors without leaving the calendar.
+
 New events default to one hour. The event dialog's **Event colour** controls apply
 to that event in Mantel; **Default colour** restores its imported Google event colour,
 series colour or calendar colour. After upgrading, the next sync also fetches colours

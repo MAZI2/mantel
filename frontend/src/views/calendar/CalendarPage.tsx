@@ -1,6 +1,6 @@
 import { addDays, format, isSameMonth, startOfWeek } from 'date-fns'
 import { useEffect, useState } from 'react'
-import { useEvents, useSettings, useUsers } from '../../api/hooks'
+import { useEvents, useSettings, useSyncNow, useUsers } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
 import { EventModal } from '../../components/EventModal'
 import { usePersonFilter } from '../../hooks/usePersonFilter'
@@ -12,6 +12,8 @@ const SCALE_FACTOR: Record<string, number> = { normal: 1, large: 1.2, wall: 1.45
 export function CalendarPage() {
   const { data: settings } = useSettings()
   const { data: users = [] } = useUsers()
+  const sync = useSyncNow()
+  const { isSuccess: synced, reset: resetSync } = sync
   const { toggle, showEveryone, isVisible, anyHidden } = usePersonFilter()
   const [anchor, setAnchor] = useState(() => new Date())
   const [, setClock] = useState(() => Date.now())
@@ -22,6 +24,12 @@ export function CalendarPage() {
   const range = rangeFor('week', anchor, weekStartsOn)
   const { data: fetched = [], isLoading } = useEvents(range.start, range.end)
   const events = fetched.filter((event) => isVisible(event.user_id))
+
+  useEffect(() => {
+    if (!synced) return
+    const timer = window.setTimeout(resetSync, 3000)
+    return () => window.clearTimeout(timer)
+  }, [synced, resetSync])
 
   useEffect(() => {
     let currentWeek = startOfWeek(new Date(), { weekStartsOn }).getTime()
@@ -96,6 +104,15 @@ export function CalendarPage() {
             )}
           </div>
         )}
+        <button
+          className="iconbtn calpage__syncbtn"
+          onClick={() => sync.mutate()}
+          disabled={sync.isPending}
+          aria-label="Sync now"
+          aria-busy={sync.isPending}
+        >
+          <span aria-live="polite">{sync.isPending ? 'Syncing…' : synced ? 'Synced' : 'Sync now'}</span>
+        </button>
         <button className="iconbtn" onClick={goToday}>
           Today
         </button>
@@ -113,6 +130,13 @@ export function CalendarPage() {
           +
         </button>
       </header>
+
+      {sync.isError && (
+        <div className="calpage__syncerror" role="alert">
+          <span>{sync.error.message || 'Could not sync. Please try again.'}</span>
+          <button onClick={resetSync} aria-label="Dismiss sync error">×</button>
+        </div>
+      )}
 
       <div className="calpage__body">
         <TimeGridView

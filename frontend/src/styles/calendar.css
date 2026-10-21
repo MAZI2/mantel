@@ -51,6 +51,33 @@
   color: var(--text-dim);
 }
 
+.calpage__syncbtn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.calpage__syncbtn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.calpage__syncerror {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--danger-faint);
+  color: var(--danger);
+  font-size: var(--font-sm);
+}
+
+.calpage__syncerror span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .iconbtn {
   padding: 8px 14px;
   border-radius: var(--radius);
@@ -863,8 +890,7 @@ a.btn {
     --gutter: 34px;
   }
 
-  /* The toolbar's five controls have to survive 390px: the title gives up its
-     space first, and it already truncates. */
+  /* The title gets its own line so five controls can fit beside one another. */
   .calpage__bar {
     gap: 4px;
     padding: 8px 10px 4px;
@@ -874,6 +900,10 @@ a.btn {
   .calpage__title {
     font-size: var(--font-md);
     font-weight: 700;
+  }
+
+  .calpage__titlewrap {
+    flex-basis: 100%;
   }
 
   /* Fixed-size controls; the title truncates instead of pushing them off. */

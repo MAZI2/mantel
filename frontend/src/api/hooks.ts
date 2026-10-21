@@ -5,6 +5,7 @@ import type {
   CalendarEvent,
   CalendarInfo,
   EventInput,
+  SyncStatus,
   User,
   Weather,
 } from './types'
@@ -68,6 +69,31 @@ export const useUpdateEvent = () =>
 
 export const useDeleteEvent = () =>
   useCalendarMutation((id: number) => api.del<void>(`/events/${id}`))
+
+export function useSyncNow() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      await api.post('/sync/run')
+      // A provider failure is recorded in status even when the sync endpoint returns 200.
+      const status = await api.get<SyncStatus>('/sync/status')
+      qc.setQueryData(['sync-status'], status)
+      const failed = status.calendars.filter((calendar) => calendar.sync_enabled && calendar.sync_error)
+      if (failed.length) {
+        throw new Error(failed.map((calendar) => `${calendar.name}: ${calendar.sync_error}`).join('; '))
+      }
+      if (status.accounts_needing_reauth.length) {
+        throw new Error(`Reconnect these accounts in Settings: ${status.accounts_needing_reauth.join(', ')}`)
+      }
+    },
+    // Refresh the grid even after a partial failure: other calendars may have synced.
+    onSettled: () => Promise.all(
+      ['events', 'calendars', 'accounts', 'sync-status'].map((key) =>
+        qc.invalidateQueries({ queryKey: [key] }),
+      ),
+    ),
+  })
+}
 
 export function useEntityMutation<TVars, TData>(fn: (v: TVars) => Promise<TData>, keys: string[]) {
   const qc = useQueryClient()
