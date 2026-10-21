@@ -7,18 +7,22 @@ const settings = await (await fetch(`${baseURL}/api/settings`)).json()
 const errors = []
 
 async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal', allDay = false,
-  weekStartsOn = 1, time = '2026-10-21T12:00:00+02:00', path = '/' } = {}) {
+  weekStartsOn = 1, dayStartHour = 0, dayEndHour = 24,
+  time = '2026-10-21T12:00:00+02:00', path = '/' } = {}) {
   const context = await browser.newContext({ baseURL, viewport, timezoneId: 'Europe/Ljubljana',
     hasTouch: true, serviceWorkers: 'block' })
   const page = await context.newPage()
   page.on('pageerror', (error) => errors.push(error.message))
   await page.clock.install({ time: new Date(time) })
-  await context.route('**/api/settings', (route) => route.fulfill({ json: {
+  const savedSettings = {
     ...settings, first_day_of_week: weekStartsOn, display_scale: scale, time_format_24h: true,
-    // An existing installation's daytime preference must no longer hide early/late hours.
-    day_start_hour: 9, day_end_hour: 21, screensaver_enabled: false, sleep_enabled: false,
+    day_start_hour: dayStartHour, day_end_hour: dayEndHour, screensaver_enabled: false, sleep_enabled: false,
     burn_in_shift: false, bookmark_url: '',
-  } }))
+  }
+  await context.route('**/api/settings', (route) => {
+    if (route.request().method() === 'PATCH') Object.assign(savedSettings, route.request().postDataJSON())
+    return route.fulfill({ json: savedSettings })
+  })
   await context.route('**/api/users', (route) => route.fulfill({ json: [] }))
   const eventRanges = []
   await context.route('**/api/events?*', (route) => {
@@ -31,10 +35,10 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
     }] : [] })
   })
   await page.goto(path)
-  await page.waitForFunction(({ scale, weekStartsOn }) => document.documentElement.dataset.scale === scale &&
-    document.querySelectorAll('.timegrid__slot').length === 168 &&
+  await page.waitForFunction(({ scale, weekStartsOn, dayStartHour, dayEndHour }) => document.documentElement.dataset.scale === scale &&
+    document.querySelectorAll('.timegrid__slot').length === (dayEndHour - dayStartHour) * 7 &&
     document.querySelector('.timegrid__dayname')?.textContent === (weekStartsOn === 1 ? 'Mon' : 'Sun'),
-    { scale, weekStartsOn })
+    { scale, weekStartsOn, dayStartHour, dayEndHour })
   return { context, page, eventRanges }
 }
 
@@ -122,6 +126,43 @@ try {
     await result.context.close()
   }
   console.log('PASS: arrows, rapid taps, Today, late-hour event creation and legacy URL redirects')
+
+  for (const [start, end] of [[6, 23], [9, 21], [0, 24]]) {
+    const { context, page } = await open({ dayStartHour: 7, dayEndHour: 22 })
+    await page.goto('/settings?tab=display')
+    const starts = page.getByRole('combobox', { name: 'Day starts', exact: true })
+    const ends = page.getByRole('combobox', { name: 'Day ends', exact: true })
+    assert.equal(await starts.inputValue(), '7')
+    assert.equal(await ends.inputValue(), '22')
+    assert.equal(await starts.locator('option[value="22"]').isDisabled(), true)
+    assert.equal(await ends.locator('option[value="7"]').isDisabled(), true)
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/api/settings') && response.request().method() === 'PATCH'),
+      starts.selectOption(String(start)),
+    ])
+    await page.waitForFunction((value) => document.querySelector('[aria-label="Day starts"]')?.value === String(value), start)
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/api/settings') && response.request().method() === 'PATCH'),
+      ends.selectOption(String(end)),
+    ])
+    await page.getByRole('link', { name: 'Calendar', exact: true }).click()
+    await page.reload()
+    await page.waitForFunction((count) => document.querySelectorAll('.timegrid__slot').length === count, (end - start) * 7)
+    const slots = page.locator('.timegrid__col').first().locator('.timegrid__slot')
+    const hour = (value) => `${String(value).padStart(2, '0')}:00`
+    assert.ok((await slots.first().getAttribute('aria-label')).endsWith(hour(start)))
+    assert.ok((await slots.last().getAttribute('aria-label')).endsWith(hour(end - 1)))
+    for (const edge of ['start', 'end']) {
+      await page.locator('.timegrid__body').evaluate((el, edge) => { el.scrollTop = edge === 'start' ? 0 : el.scrollHeight }, edge)
+      const slot = edge === 'start' ? slots.first() : slots.last()
+      const bounds = await slot.boundingBox()
+      const body = await page.locator('.timegrid__body').boundingBox()
+      assert.ok(bounds.y >= body.y - 1 && bounds.y + bounds.height <= body.y + body.height + 1,
+        `configured ${edge} hour is clipped`)
+    }
+    await context.close()
+  }
+  console.log('PASS: day start/end settings save, survive reload and control the scrollable hours')
 
   for (const scenario of [
     { weekStartsOn: 1, time: '2026-10-25T23:59:45+01:00', title: 'Oct 26 – Nov 1, 2026' },

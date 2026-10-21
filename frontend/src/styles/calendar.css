@@ -203,7 +203,7 @@
 }
 
 .timegrid__body .timegrid__hourlabel:first-child {
-  /* Midnight sits at the scroll boundary: centering its label would clip it. */
+  /* The first hour sits at the scroll boundary: centering its label would clip it. */
   transform: none;
 }
 

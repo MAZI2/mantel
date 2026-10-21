@@ -19,7 +19,7 @@ interface Props {
  *  the smaller ones rather than too late on the display that matters most. */
 const TWO_LINES_PX = 40
 
-/** A fixed set of day columns with a vertically scrolling, full-day timeline. */
+/** A fixed set of day columns with a vertically scrolling timeline. */
 export function TimeGridView({
   days,
   events,

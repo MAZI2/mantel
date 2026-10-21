@@ -118,8 +118,8 @@ export function CalendarPage() {
         <TimeGridView
           days={range.days}
           events={events}
-          dayStartHour={0}
-          dayEndHour={24}
+          dayStartHour={settings?.day_start_hour ?? 7}
+          dayEndHour={settings?.day_end_hour ?? 22}
           use24h={settings?.time_format_24h ?? false}
           hourHeight={32 * SCALE_FACTOR[settings?.display_scale ?? 'normal']}
           onSelectEvent={openEvent}

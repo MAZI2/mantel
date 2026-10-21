@@ -19,6 +19,10 @@ starts on the current week. Add disposable events through the UI to try your lay
 they survive rebuilds until cleanup. `LOCAL_PORT=8091 ./local.sh up` selects another
 port if needed (use the same value for subsequent commands).
 
+**Settings → Display → Day starts / ends** controls the visible hours in the week
+grid. Existing saved hours are respected; a fresh database defaults to 07:00–22:00.
+Choose 00:00–24:00 if you want the entire day.
+
 The separate Compose project binds only to localhost. It uses a fresh named database
 volume, ignores the production `.env`, and disables calendar sync and release checks.
 Browser tests mock their calendar data and settings, so they do not modify your preview

@@ -420,6 +420,34 @@ function DisplayTab() {
         ))}
       </div>
 
+      <div className="row">
+        <div className="row__name row__name--static">Day starts / ends</div>
+        <select
+          aria-label="Day starts"
+          value={settings.day_start_hour}
+          disabled={save.isPending}
+          onChange={(e) => save.mutate({ day_start_hour: Number(e.target.value) })}
+        >
+          {Array.from({ length: 24 }, (_, hour) => (
+            <option key={hour} value={hour} disabled={hour >= settings.day_end_hour}>
+              {String(hour).padStart(2, '0')}:00
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Day ends"
+          value={settings.day_end_hour}
+          disabled={save.isPending}
+          onChange={(e) => save.mutate({ day_end_hour: Number(e.target.value) })}
+        >
+          {Array.from({ length: 24 }, (_, index) => index + 1).map((hour) => (
+            <option key={hour} value={hour} disabled={hour <= settings.day_start_hour}>
+              {String(hour).padStart(2, '0')}:00
+            </option>
+          ))}
+        </select>
+      </div>
+
       <h3 className="settings__h3">Shortcut button</h3>
       <p className="hint">
         Adds a button to the top of every page, linking anywhere you like — another dashboard,
