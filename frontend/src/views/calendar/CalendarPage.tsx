@@ -310,7 +310,7 @@ export function CalendarPage() {
             dayStartHour={settings?.day_start_hour ?? 7}
             dayEndHour={settings?.day_end_hour ?? 22}
             use24h={settings?.time_format_24h ?? false}
-            hourHeight={64 * SCALE_FACTOR[settings?.display_scale ?? 'normal']}
+            hourHeight={32 * SCALE_FACTOR[settings?.display_scale ?? 'normal']}
             scrollRequest={stripReq}
             onVisibleStartChange={onVisibleStartChange}
             onExtend={(side) => setStripWin((w) => extendDayWindow(w, side))}
@@ -324,7 +324,7 @@ export function CalendarPage() {
             dayStartHour={settings?.day_start_hour ?? 7}
             dayEndHour={settings?.day_end_hour ?? 22}
             use24h={settings?.time_format_24h ?? false}
-            hourHeight={64 * SCALE_FACTOR[settings?.display_scale ?? 'normal']}
+            hourHeight={32 * SCALE_FACTOR[settings?.display_scale ?? 'normal']}
             onSelectEvent={openEvent}
             onSelectSlot={openSlot}
           />
