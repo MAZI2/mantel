@@ -14,6 +14,7 @@ import { WeatherTab } from './WeatherTab'
 import { THEMES } from '../../theme'
 import { PALETTE } from './palette'
 import { timeAgo } from './timeAgo'
+import { usePersonFilter } from '../../hooks/usePersonFilter'
 
 const TABS = [
   'people',
@@ -162,6 +163,7 @@ interface CalendarSyncStatus {
 function CalendarsTab() {
   const { data: calendars = [] } = useCalendars()
   const { data: users = [] } = useUsers()
+  const { toggle, showEveryone, isVisible, anyHidden } = usePersonFilter()
   // Only for the "synced 5 min ago" / error hints beside each Syncing toggle --
   // a switch with no feedback gives you no way to tell it worked.
   const { data: status } = useQuery({
@@ -218,6 +220,39 @@ function CalendarsTab() {
   return (
     <section className="panel">
       <h2>Calendars</h2>
+      {users.length > 0 && (
+        <>
+          <h3 className="settings__h3" id="calendar-visibility">Shown on this screen</h3>
+          <p className="hint">
+            Choose whose events appear on the calendar in this browser. Shared household
+            events stay visible.
+          </p>
+          <div className="peoplefilter" role="group" aria-labelledby="calendar-visibility">
+            {users.map((u) => {
+              const shown = isVisible(u.id)
+              return (
+                <button
+                  key={u.id}
+                  className="personchip"
+                  data-hidden={!shown}
+                  aria-pressed={shown}
+                  style={shown ? { background: u.color, borderColor: u.color } : undefined}
+                  onClick={() => toggle(u.id)}
+                  title={shown ? `Hide ${u.name}'s events` : `Show ${u.name}'s events`}
+                >
+                  {u.avatar_emoji && <span aria-hidden>{u.avatar_emoji}</span>}
+                  {u.name}
+                </button>
+              )
+            })}
+            {anyHidden && (
+              <button className="personchip personchip--all" onClick={showEveryone}>
+                Show everyone
+              </button>
+            )}
+          </div>
+        </>
+      )}
       <p className="hint">
         Every calendar in the house, wherever it comes from — Google, Apple, or made here.
         <strong> Assign a calendar to somebody</strong> and it starts syncing straight away,

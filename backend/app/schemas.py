@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .services.timezones import validate_timezone
+
 HEX_COLOR_EXAMPLES = ["#3b82f6", "#f97316", "#22c55e"]
 
 
@@ -120,7 +122,11 @@ class EventBase(BaseModel):
         default=False,
         description="All-day events span whole calendar days; times are ignored for display.",
     )
-    timezone: str | None = Field(default=None, examples=["America/New_York"])
+    timezone: str | None = Field(
+        default=None, examples=["Europe/Ljubljana"],
+        description="IANA timezone used to keep recurring events at the same local hour.",
+    )
+    _timezone_valid = field_validator("timezone")(validate_timezone)
     color_override: str | None = Field(
         default=None,
         description="Display color in Mantel for this event; null uses the default color.",
@@ -156,6 +162,7 @@ class EventUpdate(BaseModel):
     end_at: datetime | None = None
     all_day: bool | None = None
     timezone: str | None = None
+    _timezone_valid = field_validator("timezone")(validate_timezone)
     color_override: str | None = Field(
         default=None, description="Set an event display color in Mantel; null restores the default."
     )

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from dateutil import parser as dateparser
 
 from ..google_api import GoogleCalendarClient
+from ..recurrence import with_utc_until
 from .base import RemoteCalendar, RemoteEvent
 
 
@@ -99,6 +100,9 @@ def _to_body(event: RemoteEvent) -> dict:
     else:
         start = {"dateTime": _iso_utc(event.start)}
         end = {"dateTime": _iso_utc(event.end)}
+        if event.timezone or event.recurrence_rule:
+            start["timeZone"] = event.timezone or "UTC"
+            end["timeZone"] = event.timezone or "UTC"
     body = {
         "summary": event.title,
         "description": event.description,
@@ -110,7 +114,10 @@ def _to_body(event: RemoteEvent) -> dict:
         # Google owns the expansion from here. Our pull asks for singleEvents, so
         # what comes back are individual instances -- which is why the master gets
         # hidden from queries once this push succeeds.
-        body["recurrence"] = [f"RRULE:{event.recurrence_rule}"]
+        rule = event.recurrence_rule if event.all_day else with_utc_until(
+            event.recurrence_rule, event.timezone
+        )
+        body["recurrence"] = [f"RRULE:{rule}"]
     return body
 
 

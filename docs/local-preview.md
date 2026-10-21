@@ -23,6 +23,10 @@ port if needed (use the same value for subsequent commands).
 grid. Existing saved hours are respected; a fresh database defaults to 07:00–22:00.
 Choose 00:00–24:00 if you want the entire day.
 
+**Settings → Calendars → Shown on this screen** contains the visibility toggles
+previously in the calendar toolbar. Existing choices are kept in this browser;
+**Show everyone** restores all people, and shared household events stay visible.
+
 The calendar toolbar's **Sync now** button runs the same Google/iCloud sync as
 Settings and refreshes the visible events immediately. It shows progress and any
 reported sync errors without leaving the calendar.
@@ -41,6 +45,11 @@ into another day.
 Tapping an event first opens a compact summary with its full title, dates/times,
 calendar, location and notes. Titles wrap on phones. **Edit** opens the full form;
 **Delete** removes the event directly. Read-only calendars show details only.
+
+Timed recurring events save the creator's timezone and keep the same local hour
+through daylight-saving changes. Older local series without a saved timezone use
+the viewing browser's timezone. Sync preserves the series timezone in Google/iCloud,
+and the grid uses clock hours on the days when the clocks change too.
 
 The separate Compose project binds only to localhost. It uses a fresh named database
 volume, ignores the production `.env`, and disables calendar sync and release checks.

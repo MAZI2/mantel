@@ -90,6 +90,38 @@ def listed(client):
     return client.get("/api/events", params=WINDOW).json()
 
 
+def test_imported_icloud_series_uses_its_tzid_across_dst(client, db, provider, icloud, server):
+    data = series(rrule="FREQ=WEEKLY;COUNT=3").replace(
+        "DTSTART:20260803T170000Z", "DTSTART;TZID=Europe/Ljubljana:20261021T140000"
+    ).replace("DTEND:20260803T180000Z", "DTEND;TZID=Europe/Ljubljana:20261021T150000")
+    server.add_event("dst.ics", data)
+    sync_engine.pull_calendar(db, icloud)
+    found = client.get("/api/events", params={
+        "start": "2026-10-19T00:00:00Z", "end": "2026-11-06T00:00:00Z",
+    }).json()
+    assert [e["start_at"] for e in found] == [
+        "2026-10-21T12:00:00Z", "2026-10-28T13:00:00Z", "2026-11-04T13:00:00Z",
+    ]
+    assert db.query(Event).one().recurrence_end == datetime(2026, 11, 4, 14)
+
+
+def test_imported_utc_series_is_not_treated_as_floating_local_time(
+    client, db, provider, icloud, server,
+):
+    client.patch("/api/settings", json={"home_timezone": "Europe/Ljubljana"})
+    data = series(rrule="FREQ=WEEKLY;COUNT=2").replace(
+        "20260803T170000Z", "20261021T120000Z"
+    ).replace("20260803T180000Z", "20261021T130000Z")
+    server.add_event("utc.ics", data)
+    sync_engine.pull_calendar(db, icloud)
+    found = client.get("/api/events", params={
+        "start": "2026-10-19T00:00:00Z", "end": "2026-11-01T00:00:00Z",
+        "timezone": "Europe/Ljubljana",
+    }).json()
+    assert [e["start_at"] for e in found] == ["2026-10-21T12:00:00Z", "2026-10-28T12:00:00Z"]
+    assert db.query(Event).one().timezone == "UTC"
+
+
 # ------------------------------ the plain case -------------------------------
 
 

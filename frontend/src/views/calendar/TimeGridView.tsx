@@ -246,13 +246,23 @@ interface Positioned {
  *  something else on a wall display nobody can hover. */
 function layout(events: CalendarEvent[], day: Date, hourHeight: number): Positioned[] {
   const dayStart = startOfLocalDay(day)
+  const dayEnd = new Date(dayStart)
+  dayEnd.setDate(dayEnd.getDate() + 1)
+  const clockHour = (d: Date) => d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600
 
   const spans = events
     .map((event) => {
       const s = new Date(event.start_at)
       const e = new Date(event.end_at)
-      const startH = Math.max(0, (s.getTime() - dayStart.getTime()) / 3_600_000)
-      const endH = Math.min(24, (e.getTime() - dayStart.getTime()) / 3_600_000)
+      // The grid is labelled by local clock hours. Elapsed time since midnight
+      // shifts everything after a DST transition by one row on that Sunday.
+      const startH = s <= dayStart ? 0 : clockHour(s)
+      let endH = e >= dayEnd ? 24 : clockHour(e)
+      if (endH <= startH && e > s) {
+        // The repeated hour has only one row. Keep an event spanning the backward
+        // jump visible even when its end clock reading is earlier than its start.
+        endH = Math.min(24, startH + (e.getTime() - s.getTime()) / 3_600_000)
+      }
       return { event, startH, endH: Math.max(endH, startH) }
     })
     .sort((a, b) => a.startH - b.startH || b.endH - a.endH)

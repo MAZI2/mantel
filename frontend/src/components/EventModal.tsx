@@ -113,6 +113,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
       start_at: startISO,
       end_at: endISO,
       all_day: allDay,
+      timezone: allDay ? null : event?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
       recurrence_rule: buildRule(repeat.freq as Freq, repeat.byday, repeat.until),
     }
     try {

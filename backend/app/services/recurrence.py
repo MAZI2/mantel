@@ -25,6 +25,8 @@ from dateutil import rrule as rrule_lib
 from sqlalchemy.orm.attributes import set_committed_value
 
 from ..models import Event
+from ..timeutil import as_utc, to_utc
+from .timezones import zone
 
 # A runaway rule (no COUNT, no UNTIL, DAILY) must not be able to generate a
 # million rows for a wide query. A decade of daily events is far past anything a
@@ -44,14 +46,7 @@ class RecurrenceError(ValueError):
 
 
 def _naive_until(rule: str) -> str:
-    """Drop the trailing Z from UNTIL.
-
-    Every datetime in this database is naive UTC. dateutil refuses to compare a
-    timezone-aware UNTIL against a naive DTSTART and yields *no occurrences at
-    all* rather than raising -- so `FREQ=WEEKLY;UNTIL=20261231T000000Z`, which is
-    the standard form and exactly what Google emits, would silently make an event
-    vanish. Stripping the Z keeps both sides naive UTC, which they already are.
-    """
+    """Use a naive UNTIL only for syntax validation against a dummy DTSTART."""
     out = []
     for piece in rule.split(";"):
         if piece.startswith("UNTIL=") and piece.endswith("Z"):
@@ -68,7 +63,6 @@ def validate(rule: str) -> str:
     if not text:
         raise RecurrenceError("Empty recurrence rule")
 
-    text = _naive_until(text)
     parts = dict(
         piece.split("=", 1) for piece in text.split(";") if "=" in piece
     )
@@ -81,14 +75,38 @@ def validate(rule: str) -> str:
     # Parse it for real so a malformed BYDAY/UNTIL is caught at write time rather
     # than blowing up inside a calendar query later.
     try:
-        rrule_lib.rrulestr(text, dtstart=datetime(2026, 1, 1))
+        rrule_lib.rrulestr(_naive_until(text), dtstart=datetime(2026, 1, 1))
     except (ValueError, TypeError) as exc:
         raise RecurrenceError(f"Could not read that recurrence rule: {exc}") from exc
 
     return text
 
 
-def series_end(rule: str | None, dtstart: datetime, duration: timedelta) -> datetime | None:
+def with_utc_until(rule: str, timezone: str | None = None) -> str:
+    tz = zone(timezone)
+    # RRULEs repeat wall-clock times in the series' zone, not a fixed UTC offset.
+    # dateutil requires aware DTSTARTs to have UTC UNTILs; the UI's unsuffixed
+    # UNTIL is a local end date, while an imported Z-suffixed UNTIL is already UTC.
+    pieces = []
+    for piece in rule.split(";"):
+        if piece.startswith("UNTIL=") and not piece.endswith("Z"):
+            value = piece.removeprefix("UNTIL=")
+            fmt = "%Y%m%dT%H%M%S" if "T" in value else "%Y%m%d"
+            until = datetime.strptime(value, fmt).replace(tzinfo=tz)
+            piece = f"UNTIL={to_utc(until).strftime('%Y%m%dT%H%M%SZ')}"
+        pieces.append(piece)
+    return ";".join(pieces)
+
+
+def _rule(rule: str, dtstart: datetime, timezone: str | None):
+    return rrule_lib.rrulestr(
+        with_utc_until(rule, timezone), dtstart=as_utc(dtstart).astimezone(zone(timezone))
+    )
+
+
+def series_end(
+    rule: str | None, dtstart: datetime, duration: timedelta, timezone: str | None = None
+) -> datetime | None:
     """When a finite series stops, or None if it never does.
 
     Stored on the row so `list_events` can skip finished series in SQL. Without
@@ -98,7 +116,7 @@ def series_end(rule: str | None, dtstart: datetime, duration: timedelta) -> date
     if not rule:
         return None
     try:
-        parsed = rrule_lib.rrulestr(_naive_until(rule), dtstart=dtstart)
+        parsed = _rule(rule, dtstart, timezone)
     except (ValueError, TypeError):
         return None
 
@@ -112,10 +130,12 @@ def series_end(rule: str | None, dtstart: datetime, duration: timedelta) -> date
         last = occurrence
         if count >= MAX_OCCURRENCES:
             return None  # pathologically long; treat as unbounded
-    return None if last is None else last + duration
+    return None if last is None else to_utc(last) + duration
 
 
-def occurrences(event: Event, window_start: datetime, window_end: datetime) -> list[datetime]:
+def occurrences(
+    event: Event, window_start: datetime, window_end: datetime, fallback_timezone: str = "UTC"
+) -> list[datetime]:
     """Start times for `event` that fall inside the window.
 
     The window is widened backwards by the event's duration so a long occurrence
@@ -130,14 +150,14 @@ def occurrences(event: Event, window_start: datetime, window_end: datetime) -> l
     excluded = excluded_starts(event)
 
     try:
-        # Defensive: rules stored before normalisation existed, or written straight
-        # into the database, may still carry a Z-suffixed UNTIL.
-        rule = rrule_lib.rrulestr(_naive_until(event.recurrence_rule), dtstart=event.start_at)
+        timezone = None if event.all_day else event.timezone or fallback_timezone
+        rule = _rule(event.recurrence_rule, event.start_at, timezone)
     except (ValueError, TypeError):
         return []
 
     found: list[datetime] = []
     for occurrence in rule:
+        occurrence = to_utc(occurrence)
         if occurrence >= window_end:
             break
         if occurrence > search_from and occurrence not in excluded:
@@ -171,7 +191,9 @@ def excluded_starts(event: Event) -> set[datetime]:
     return out
 
 
-def materialise(event: Event, window_start: datetime, window_end: datetime) -> list[Event]:
+def materialise(
+    event: Event, window_start: datetime, window_end: datetime, fallback_timezone: str = "UTC"
+) -> list[Event]:
     """Detached copies of `event`, one per occurrence in the window.
 
     These are never added to the session -- they exist only to be serialised. The
@@ -188,7 +210,7 @@ def materialise(event: Event, window_start: datetime, window_end: datetime) -> l
     duration = event.end_at - event.start_at
     out: list[Event] = []
 
-    for start in occurrences(event, window_start, window_end):
+    for start in occurrences(event, window_start, window_end, fallback_timezone):
         instance = Event(
             id=event.id,
             calendar_id=event.calendar_id,

@@ -37,10 +37,11 @@ export function useEvents(start: Date, end: Date, userIds: number[] = []) {
   const e = end.toISOString()
   // Sorted so ['1','2'] and ['2','1'] share one cache entry instead of two.
   const people = [...userIds].sort((a, b) => a - b).join(',')
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return useQuery({
-    queryKey: ['events', s, e, people],
+    queryKey: ['events', s, e, people, timezone],
     queryFn: () => {
-      const params = new URLSearchParams({ start: s, end: e })
+      const params = new URLSearchParams({ start: s, end: e, timezone })
       if (people) params.set('user_ids', people)
       return api.get<CalendarEvent[]>(`/events?${params}`)
     },

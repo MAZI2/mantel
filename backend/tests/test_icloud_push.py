@@ -95,6 +95,23 @@ def vevent_of(server, index=-1):
     return next(iter(ICalendar.from_ical(server.puts[index][1]).walk("VEVENT")))
 
 
+def test_icloud_receives_the_named_timezone_for_a_recurring_event(client, db, setup, server):
+    response = new_event(
+        client, setup["cal"].id, start_at="2026-10-21T14:00:00+02:00",
+        end_at="2026-10-21T15:00:00+02:00", timezone="Europe/Ljubljana",
+        recurrence_rule="FREQ=WEEKLY;UNTIL=20261104T235959",
+    )
+    assert response.status_code == 201
+    assert push(db) == 1
+    component = vevent_of(server)
+    assert component["DTSTART"].params["TZID"] == "Europe/Ljubljana"
+    assert component["DTSTART"].dt.hour == 14
+    assert component["DTEND"].dt.hour == 15
+    assert component["RRULE"].to_ical().decode() == "FREQ=WEEKLY;UNTIL=20261104T225959Z"
+    calendar = ICalendar.from_ical(server.puts[-1][1])
+    assert [str(c["TZID"]) for c in calendar.walk("VTIMEZONE")] == ["Europe/Ljubljana"]
+
+
 # --------------------------------- create ------------------------------------
 
 

@@ -13,11 +13,8 @@
   min-width: 0;
 }
 
-/* The strip above the grid must keep its natural height. As flex children these
-   default to flex-shrink: 1, and when the grid wants room they get squeezed --
-   which chopped the bottom off the people chips rather than shortening the grid. */
-.calpage__bar,
-.peoplefilter {
+/* Keep the toolbar's natural height when the grid needs more scrolling room. */
+.calpage__bar {
   flex: 0 0 auto;
 }
 
@@ -868,77 +865,6 @@ a.btn {
   opacity: 0.5;
 }
 
-/* --------------------------- people filter chips -------------------------- */
-
-.peoplefilter {
-  display: flex;
-  gap: 8px;
-  padding: 8px 10px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elev);
-  scrollbar-width: none;
-}
-
-/* The chips live in the toolbar now, so they borrow its strip instead of drawing their
-   own. They give way before the buttons do: the row scrolls sideways if a big family
-   runs out of room. */
-.calpage__bar .peoplefilter {
-  flex: 0 1 auto;
-  min-width: 0;
-  gap: 6px;
-  padding: 0 6px 0 0;
-  border-bottom: none;
-  background: none;
-}
-
-.peoplefilter::-webkit-scrollbar {
-  display: none;
-}
-
-/* Shown: filled with the person's own colour, so the chip row doubles as the
-   legend for the grid below. Hidden: drained of colour, which reads as "off"
-   from across the room without needing a checkbox. */
-.personchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  border: 2px solid transparent;
-  color: var(--chip-ink);
-  font-size: var(--font-sm);
-  font-weight: 600;
-  white-space: nowrap;
-  min-height: var(--touch);
-  min-width: 0;
-  flex: 0 0 auto;
-  transition:
-    background 150ms ease,
-    color 150ms ease,
-    opacity 150ms ease;
-}
-
-.personchip[data-hidden='true'] {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--text-dim);
-  opacity: 0.55;
-  font-weight: 500;
-  text-decoration: line-through;
-}
-
-.personchip:active {
-  filter: brightness(1.15);
-}
-
-.personchip--all {
-  background: var(--bg-elev-2);
-  color: var(--text);
-  border-color: var(--border);
-  font-weight: 500;
-}
-
 .chiprow {
   display: flex;
   gap: 6px;
@@ -1005,16 +931,9 @@ a.btn {
     padding: 8px 12px;
   }
 
-  /* No room for the chips beside five controls at 390px: they take a second line of
-     the bar, under the title and buttons. */
+  /* Navigation controls sit below the title on a phone. */
   .calpage__bar {
     flex-wrap: wrap;
-  }
-
-  .calpage__bar .peoplefilter {
-    order: 1;
-    flex: 1 0 100%;
-    padding: 4px 0 0;
   }
 
   /* The grid is the content -- give it the only hard edge on the screen. */

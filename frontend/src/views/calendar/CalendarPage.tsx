@@ -1,6 +1,6 @@
 import { addDays, format, isSameMonth, startOfWeek } from 'date-fns'
 import { useEffect, useState } from 'react'
-import { useEvents, useSettings, useSyncNow, useUsers } from '../../api/hooks'
+import { useEvents, useSettings, useSyncNow } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
 import { EventDialog } from '../../components/EventDialog'
 import { usePersonFilter } from '../../hooks/usePersonFilter'
@@ -11,10 +11,9 @@ const SCALE_FACTOR: Record<string, number> = { normal: 1, large: 1.2, wall: 1.45
 
 export function CalendarPage() {
   const { data: settings } = useSettings()
-  const { data: users = [] } = useUsers()
   const sync = useSyncNow()
   const { isSuccess: synced, reset: resetSync } = sync
-  const { toggle, showEveryone, isVisible, anyHidden } = usePersonFilter()
+  const { isVisible } = usePersonFilter()
   const [anchor, setAnchor] = useState(() => new Date())
   const [, setClock] = useState(() => Date.now())
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
@@ -75,35 +74,6 @@ export function CalendarPage() {
           <h1 className="calpage__title">{titleFor(range.start, range.end)}</h1>
           {isLoading && <span className="calpage__loading">…</span>}
         </div>
-        {/* In the toolbar, beside the controls rather than the title, so they don't slide
-            sideways every time the title changes length. A phone wraps them onto a
-            second line of the same bar. */}
-        {users.length > 0 && (
-          <div className="peoplefilter">
-            {users.map((u) => {
-              const shown = isVisible(u.id)
-              return (
-                <button
-                  key={u.id}
-                  className="personchip"
-                  data-hidden={!shown}
-                  aria-pressed={shown}
-                  style={shown ? { background: u.color, borderColor: u.color } : undefined}
-                  onClick={() => toggle(u.id)}
-                  title={shown ? `Hide ${u.name}'s events` : `Show ${u.name}'s events`}
-                >
-                  {u.avatar_emoji && <span aria-hidden>{u.avatar_emoji}</span>}
-                  {u.name}
-                </button>
-              )
-            })}
-            {anyHidden && (
-              <button className="personchip personchip--all" onClick={showEveryone}>
-                Show everyone
-              </button>
-            )}
-          </div>
-        )}
         <button
           className="iconbtn calpage__syncbtn"
           onClick={() => sync.mutate()}

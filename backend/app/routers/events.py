@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, or_, select
@@ -11,6 +11,7 @@ from ..serializers import event_out
 from ..services import recurrence
 from ..services.notify import calendar_changed
 from ..services.pushqueue import mark_pending, request_push
+from ..services.timezones import home_timezone, validate_timezone
 from ..timeutil import to_utc
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -114,12 +115,20 @@ def list_events(
     include_unclaimed: bool = Query(
         default=True, description="Set false to hide calendars nobody has claimed."
     ),
+    timezone: str | None = Query(
+        default=None,
+        description="Viewer's IANA timezone for legacy local series with no saved timezone.",
+    ),
     db: Session = Depends(get_db),
 ) -> list[EventOut]:
     if end <= start:
         raise HTTPException(400, "`end` must be after `start`")
 
     window_start, window_end = to_utc(start), to_utc(end)
+    try:
+        fallback_timezone = validate_timezone(timezone) or home_timezone(db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     # Two shapes of row live in this table. A plain event is selected by its own
     # dates. A recurring series has only its FIRST occurrence's dates stored, so
@@ -151,7 +160,10 @@ def list_events(
                 # re-expanded only to yield nothing. NULL means it never ends.
                 or_(
                     Event.recurrence_end.is_(None),
-                    Event.recurrence_end > window_start,
+                    # Older installs cached this bound using fixed UTC recurrence.
+                    # Allow a day of slack so their final occurrence is not lost
+                    # when the corrected timezone expansion crosses a clock change.
+                    Event.recurrence_end > window_start - timedelta(days=1),
                 ),
             ),
         )
@@ -173,7 +185,10 @@ def list_events(
     expanded: list[Event] = []
     for row in rows:
         if row.recurrence_rule:
-            expanded.extend(recurrence.materialise(row, window_start, window_end))
+            expanded.extend(recurrence.materialise(
+                row, window_start, window_end,
+                fallback_timezone if row.origin == "local" else "UTC",
+            ))
         else:
             expanded.append(row)
 
@@ -208,8 +223,11 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> EventOu
         except recurrence.RecurrenceError as exc:
             raise HTTPException(400, str(exc)) from exc
     ev = Event(**data, origin="local")
+    if ev.recurrence_rule and not ev.all_day and not ev.timezone:
+        ev.timezone = home_timezone(db)
     ev.recurrence_end = recurrence.series_end(
-        ev.recurrence_rule, ev.start_at, ev.end_at - ev.start_at
+        ev.recurrence_rule, ev.start_at, ev.end_at - ev.start_at,
+        None if ev.all_day else ev.timezone,
     )
     mark_pending(ev, cal, "pending_create")
     db.add(ev)
@@ -287,8 +305,11 @@ def _move_event(db: Session, ev: Event, target: Calendar, changes: dict) -> Even
         values["exdates"] = None  # exclusions mean nothing without a series
 
     moved = Event(calendar_id=target.id, origin="local", **values)
+    if moved.recurrence_rule and not moved.all_day and not moved.timezone:
+        moved.timezone = home_timezone(db)
     moved.recurrence_end = recurrence.series_end(
-        moved.recurrence_rule, moved.start_at, moved.end_at - moved.start_at
+        moved.recurrence_rule, moved.start_at, moved.end_at - moved.start_at,
+        None if moved.all_day else moved.timezone,
     )
     mark_pending(moved, target, "pending_create")
     db.add(moved)
@@ -344,8 +365,11 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
         setattr(ev, key, value)
     if ev.end_at <= ev.start_at:
         raise HTTPException(400, "`end_at` must be after `start_at`")
+    if ev.recurrence_rule and not ev.all_day and not ev.timezone:
+        ev.timezone = home_timezone(db)
     ev.recurrence_end = recurrence.series_end(
-        ev.recurrence_rule, ev.start_at, ev.end_at - ev.start_at
+        ev.recurrence_rule, ev.start_at, ev.end_at - ev.start_at,
+        None if ev.all_day else ev.timezone,
     )
 
     mark_pending(ev, ev.calendar, "pending_update")

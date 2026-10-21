@@ -8,7 +8,7 @@ const errors = []
 
 async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal', allDay = false,
   weekStartsOn = 1, dayStartHour = 0, dayEndHour = 24,
-  timezoneId = 'Europe/Ljubljana', fixtureEvents = null,
+  timezoneId = 'Europe/Ljubljana', fixtureEvents = null, fixtureUsers = [],
   time = '2026-10-21T12:00:00+02:00', path = '/' } = {}) {
   const context = await browser.newContext({ baseURL, viewport, timezoneId,
     hasTouch: true, serviceWorkers: 'block' })
@@ -24,7 +24,7 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
     if (route.request().method() === 'PATCH') Object.assign(savedSettings, route.request().postDataJSON())
     return route.fulfill({ json: savedSettings })
   })
-  await context.route('**/api/users', (route) => route.fulfill({ json: [] }))
+  await context.route('**/api/users', (route) => route.fulfill({ json: fixtureUsers }))
   const eventRanges = []
   await context.route('**/api/events?*', (route) => {
     eventRanges.push(new URL(route.request().url()).searchParams.get('start'))
@@ -110,6 +110,77 @@ try {
   console.log('PASS: full-day scrolling, compact rows and no horizontal navigation at 18 size/scale/all-day combinations')
 
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 720 }]) {
+    const users = [
+      { id: 9501, name: 'Alexandria with a long family member name', color: '#38bdf8', avatar_emoji: '🌻' },
+      { id: 9502, name: 'Sam', color: '#fbbf24', avatar_emoji: null },
+    ]
+    const events = [
+      { id: 9501, title: 'Alex appointment', user_id: 9501 },
+      { id: 9502, title: 'Sam appointment', user_id: 9502 },
+      { id: 9503, title: 'Household reminder', user_id: null },
+    ].map((event) => ({ ...event, calendar_id: 1, calendar_name: 'Family', color: '#38bdf8',
+      start_at: '2026-10-21T14:00:00+02:00', end_at: '2026-10-21T15:00:00+02:00',
+      all_day: false, editable: true, origin: 'local',
+    }))
+    const { context, page } = await open({ viewport, fixtureUsers: users, fixtureEvents: events })
+    await page.evaluate(() => localStorage.setItem('famcal.hiddenPeople', '[9502]'))
+    await page.reload()
+    const alex = page.locator('.event-block').filter({ hasText: 'Alex appointment' })
+    const sam = page.locator('.event-block').filter({ hasText: 'Sam appointment' })
+    const household = page.locator('.event-block').filter({ hasText: 'Household reminder' })
+    await alex.waitFor()
+    await sam.waitFor({ state: 'hidden' })
+    await household.waitFor()
+    assert.equal(await page.locator('.calpage__bar .peoplefilter, .calpage__bar .personchip').count(), 0)
+    let mutations = 0
+    context.on('request', (request) => {
+      if (['POST', 'PATCH', 'DELETE'].includes(request.method())) mutations += 1
+    })
+    const group = page.getByRole('group', { name: 'Shown on this screen', exact: true })
+    const alexToggle = group.getByRole('button', { name: users[0].name, exact: true })
+    const samToggle = group.getByRole('button', { name: 'Sam', exact: true })
+    const settingsFilters = async () => {
+      await page.getByRole('link', { name: 'Settings', exact: true }).click()
+      await page.getByRole('button', { name: 'Calendars', exact: true }).click()
+      await group.waitFor()
+    }
+    await settingsFilters()
+    assert.equal(await alexToggle.getAttribute('aria-pressed'), 'true')
+    assert.equal(await samToggle.getAttribute('aria-pressed'), 'false', 'previously hidden choices were lost')
+    assert.ok(await group.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'toggles overflow on mobile')
+    await alexToggle.click()
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('famcal.hiddenPeople')).length === 2)
+    await page.getByRole('link', { name: 'Calendar', exact: true }).click()
+    await household.waitFor()
+    await alex.waitFor({ state: 'hidden' })
+    await sam.waitFor({ state: 'hidden' })
+    await page.reload()
+    await household.waitFor()
+    await alex.waitFor({ state: 'hidden' })
+
+    await settingsFilters()
+    await samToggle.click()
+    await page.waitForFunction(() => !JSON.parse(localStorage.getItem('famcal.hiddenPeople')).includes(9502))
+    await page.getByRole('link', { name: 'Calendar', exact: true }).click()
+    await sam.waitFor()
+    await alex.waitFor({ state: 'hidden' })
+    await settingsFilters()
+    assert.equal(await samToggle.getAttribute('aria-pressed'), 'true')
+    assert.equal(await alexToggle.getAttribute('aria-pressed'), 'false')
+    await group.getByRole('button', { name: 'Show everyone', exact: true }).click()
+    await page.waitForFunction(() => localStorage.getItem('famcal.hiddenPeople') === '[]')
+    await page.getByRole('link', { name: 'Calendar', exact: true }).click()
+    await alex.waitFor()
+    await sam.waitFor()
+    await page.reload()
+    await alex.waitFor()
+    await sam.waitFor()
+    assert.equal(mutations, 0, 'visibility preferences must not change syncing or saved events')
+    await context.close()
+  }
+  console.log('PASS: Settings visibility toggles preserve choices, filter events after navigation/reload and restore everyone without toolbar controls')
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 720 }]) {
     for (const scale of ['normal', 'large', 'wall']) {
       const timed = (id, title, start, end) => ({
         id, calendar_id: 1, calendar_name: 'Family', title, color: '#38bdf8',
@@ -175,6 +246,71 @@ try {
     }
   }
   console.log('PASS: square timed events align on every edge, retain short durations, show 75%-size end times and allow taps through the grid')
+
+  for (const [date, offset] of [['2026-03-29', '+02:00'], ['2026-10-25', '+01:00']]) {
+    const { context, page } = await open({ time: `${date}T12:00:00${offset}`, fixtureEvents: [{
+      id: 9401, calendar_id: 1, calendar_name: 'Family', title: 'Clock-change Sunday',
+      color: '#38bdf8', user_id: null, start_at: `${date}T14:00:00${offset}`,
+      end_at: `${date}T15:00:00${offset}`, all_day: false, editable: true, origin: 'google',
+    }, ...(date === '2026-10-25' ? [{
+      id: 9402, calendar_id: 1, calendar_name: 'Family', title: 'Spans the repeated hour',
+      color: '#fbbf24', user_id: null, start_at: '2026-10-25T02:30:00+02:00',
+      end_at: '2026-10-25T02:15:00+01:00', all_day: false, editable: true, origin: 'local',
+    }] : [])] })
+    const event = page.locator('.event-block').filter({ hasText: 'Clock-change Sunday' })
+    await event.scrollIntoViewIfNeeded()
+    const aligned = await event.evaluate((el) => {
+      const slots = el.parentElement.querySelectorAll('.timegrid__slot')
+      const rect = el.getBoundingClientRect()
+      return Math.abs(rect.top - slots[14].getBoundingClientRect().top) < 0.1 &&
+        Math.abs(rect.bottom - slots[15].getBoundingClientRect().top) < 0.1
+    })
+    assert.ok(aligned, `14:00 event is on the wrong grid row on ${date}`)
+    assert.equal(await event.locator('.event-block__time').textContent(), '14:00')
+    if (date === '2026-10-25') {
+      const repeatedHour = page.locator('.event-block').filter({ hasText: 'Spans the repeated hour' })
+      assert.ok((await repeatedHour.boundingBox()).height > 0, 'a backward clock jump hid the event')
+    }
+    await context.close()
+  }
+
+  const weekly = await open()
+  let weeklyCalendarId
+  try {
+    const { context, page } = weekly
+    const calendar = await context.request.post('/api/calendars', { data: { name: 'DST recurrence test' } })
+    assert.equal(calendar.status(), 201)
+    weeklyCalendarId = (await calendar.json()).id
+    await context.unroute('**/api/events?*')
+    await page.getByRole('button', { name: 'Add event', exact: true }).click()
+    await page.getByLabel('Title', { exact: true }).fill('Always two pm')
+    await page.getByRole('combobox', { name: 'Calendar', exact: true }).selectOption(String(weeklyCalendarId))
+    await page.getByLabel('Starts', { exact: true }).fill('2026-10-21T14:00')
+    await page.getByRole('button', { name: 'Weekly', exact: true }).click()
+    const savedResponse = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/events' && r.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    const saved = await (await savedResponse).json()
+    assert.equal(saved.timezone, 'Europe/Ljubljana', 'series must retain the creator’s named timezone')
+    await page.locator('.modal').waitFor({ state: 'hidden' })
+    for (let week = 0; week < 3; week += 1) {
+      if (week) await page.getByRole('button', { name: 'Next week', exact: true }).click()
+      const event = page.locator('.event-block').filter({ hasText: 'Always two pm' })
+      await event.waitFor()
+      assert.equal(await event.locator('.event-block__time').textContent(), '14:00')
+      assert.equal(await event.locator('.event-block__end').textContent(), '15:00')
+      assert.equal(await event.evaluate((el) => el.style.top), '448px')
+      await event.click()
+      const details = page.locator('.event-details')
+      await details.waitFor()
+      assert.ok((await details.textContent()).includes('14:00 – 15:00'))
+      await page.getByRole('button', { name: 'Close event details', exact: true }).click()
+      await details.waitFor({ state: 'hidden' })
+    }
+  } finally {
+    if (weeklyCalendarId) await weekly.context.request.delete(`/api/calendars/${weeklyCalendarId}`)
+    await weekly.context.close()
+  }
+  console.log('PASS: recurring events stay at the same local hour across DST and clock-change Sundays align with their labels')
 
   for (const [viewport, scale] of [
     [{ width: 320, height: 640 }, 'normal'],

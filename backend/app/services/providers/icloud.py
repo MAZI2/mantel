@@ -22,8 +22,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dateutil import parser as dateparser
 from icalendar import Calendar as ICalendar
 from icalendar import Event as IEvent
+from icalendar import Timezone as ITimezone
 
 from ..caldav_client import CalDavClient
+from ..recurrence import with_utc_until
 from .base import OCCURRENCE_SEP, ProviderError, RemoteCalendar, RemoteEvent
 
 log = logging.getLogger(__name__)
@@ -147,7 +149,11 @@ class ICloudProvider:
             start=start,
             end=end,
             all_day=all_day,
-            timezone=_tzid_of(start_prop),
+            timezone=None if all_day else (
+                _tzid_of(start_prop) or
+                (self._tz.key if raw_start.tzinfo is None else
+                 getattr(raw_start.tzinfo, "key", "UTC"))
+            ),
             recurrence_rule=_rrule_of(component),
             recurring_event_id=recurring_event_id,
             exdates=[self._naive_utc(d) for d in _exdates_of(component)],
@@ -218,6 +224,7 @@ class ICloudProvider:
             raise ProviderError(404, "That event is no longer in the calendar")
 
         _apply(component, event)
+        _ensure_timezone(calendar, event)
         etag = self._write(url, calendar, resource.etag)
         return RemoteEvent(id=event.id, etag=etag, updated=_now())
 
@@ -409,7 +416,18 @@ def _build_vcalendar(event: RemoteEvent, uid: str) -> str:
     cal.add("prodid", PRODID)
     cal.add("version", "2.0")
     cal.add_component(_build_vevent(event, uid))
+    _ensure_timezone(cal, event)
     return cal.to_ical().decode()
+
+
+def _ensure_timezone(calendar: ICalendar, event: RemoteEvent) -> None:
+    if event.all_day or not event.timezone or event.timezone == "UTC":
+        return
+    tz = _zone(event.timezone)
+    if any(str(c.get("TZID")) == tz.key for c in calendar.walk("VTIMEZONE")):
+        return
+    # CalDAV resources must carry a definition for each named TZID they use.
+    calendar.add_component(ITimezone.from_tzinfo(tz))
 
 
 def _build_vevent(event: RemoteEvent, uid: str) -> IEvent:
@@ -438,11 +456,15 @@ def _apply(component, event: RemoteEvent) -> None:
         component.add("dtstart", event.start.date())
         component.add("dtend", event.end.date())
     else:
-        component.add("dtstart", event.start.replace(tzinfo=UTC))
-        component.add("dtend", event.end.replace(tzinfo=UTC))
+        tz = _zone(event.timezone or "UTC")
+        component.add("dtstart", event.start.replace(tzinfo=UTC).astimezone(tz))
+        component.add("dtend", event.end.replace(tzinfo=UTC).astimezone(tz))
 
     if event.recurrence_rule:
-        component.add("rrule", _vrecur(event.recurrence_rule))
+        rule = event.recurrence_rule if event.all_day else with_utc_until(
+            event.recurrence_rule, event.timezone
+        )
+        component.add("rrule", _vrecur(rule))
 
     component.pop("DTSTAMP", None)
     component.add("dtstamp", datetime.now(UTC))

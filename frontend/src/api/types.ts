@@ -84,6 +84,7 @@ export interface EventInput {
   start_at: string
   end_at: string
   all_day?: boolean
+  timezone?: string | null
   recurrence_rule?: string | null
 }
 

@@ -338,6 +338,25 @@ def test_recurring_event_pushes_an_rrule(client, db, setup, fake):
     assert body["recurrence"] == ["RRULE:FREQ=WEEKLY;BYDAY=MO"]
 
 
+def test_google_receives_the_series_timezone_and_a_utc_until(client, db, setup, fake):
+    response = client.post("/api/events", json={
+        "calendar_id": setup["cal"].id, "title": "Two pm every Wednesday",
+        "start_at": "2026-10-21T14:00:00+02:00", "end_at": "2026-10-21T15:00:00+02:00",
+        "timezone": "Europe/Ljubljana", "recurrence_rule": "FREQ=WEEKLY;UNTIL=20261104T235959",
+    })
+    assert response.status_code == 201
+    assert google_sync.push_pending(db) == 1
+    body = fake.inserted[0]["body"]
+    assert body["start"] == {"dateTime": "2026-10-21T12:00:00Z", "timeZone": "Europe/Ljubljana"}
+    assert body["end"] == {"dateTime": "2026-10-21T13:00:00Z", "timeZone": "Europe/Ljubljana"}
+    assert body["recurrence"] == ["RRULE:FREQ=WEEKLY;UNTIL=20261104T225959Z"]
+
+    client.patch(f"/api/events/{response.json()['id']}", json={"title": "Renamed weekly"})
+    db.expire_all()
+    assert google_sync.push_pending(db) == 1
+    assert fake.patched[0][1]["start"]["timeZone"] == "Europe/Ljubljana"
+
+
 def test_pushed_series_stops_being_expanded_locally(client, db, setup, fake):
     """The duplication trap: our pull asks Google for expanded instances, so once
     Google owns the series our own master must disappear from queries or every

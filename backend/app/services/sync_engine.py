@@ -25,6 +25,7 @@ from .providers.base import (
     SyncTokenExpired,
 )
 from .providers.registry import for_account
+from .timezones import home_timezone
 
 log = logging.getLogger(__name__)
 
@@ -252,7 +253,8 @@ def _apply_recurrence(event: Event, item: RemoteEvent) -> None:
     event.recurrence_rule = item.recurrence_rule
     event.exdates = _pack_exdates(item.exdates)
     event.recurrence_end = recurrence.series_end(
-        item.recurrence_rule, event.start_at, event.end_at - event.start_at
+        item.recurrence_rule, event.start_at, event.end_at - event.start_at,
+        None if event.all_day else event.timezone,
     )
 
 
@@ -392,6 +394,8 @@ def _push_one(db: Session, cal: Calendar, event: Event) -> None:
         db.commit()
         return
 
+    if event.recurrence_rule and not event.all_day and not event.timezone:
+        event.timezone = home_timezone(db)
     payload = _to_remote_event(event)
 
     if state == "pending_create" or not event.remote_id:
