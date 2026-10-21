@@ -121,6 +121,16 @@ class EventBase(BaseModel):
         description="All-day events span whole calendar days; times are ignored for display.",
     )
     timezone: str | None = Field(default=None, examples=["America/New_York"])
+    color_override: str | None = Field(
+        default=None,
+        description="Display color in Mantel for this event; null uses the default color.",
+        examples=HEX_COLOR_EXAMPLES,
+    )
+
+    @field_validator("color_override")
+    @classmethod
+    def check_color(cls, v: str | None) -> str | None:
+        return None if v is None else _validate_hex(v)
 
 
 class EventCreate(EventBase):
@@ -146,9 +156,17 @@ class EventUpdate(BaseModel):
     end_at: datetime | None = None
     all_day: bool | None = None
     timezone: str | None = None
+    color_override: str | None = Field(
+        default=None, description="Set an event display color in Mantel; null restores the default."
+    )
     recurrence_rule: str | None = Field(
         default=None, description="Set to null to turn a repeating event into a single one."
     )
+
+    @field_validator("color_override")
+    @classmethod
+    def check_color(cls, v: str | None) -> str | None:
+        return None if v is None else _validate_hex(v)
 
 
 class EventOut(BaseModel):
@@ -157,6 +175,12 @@ class EventOut(BaseModel):
     calendar_id: int
     calendar_name: str
     color: str = Field(description="Resolved display color, so clients need no extra lookups.")
+    color_override: str | None = Field(
+        default=None, description="This event's custom Mantel color, or null for the default."
+    )
+    remote_color: str | None = Field(
+        default=None, description="Event color imported from the calendar provider, when set."
+    )
     user_id: int | None = Field(description="Owner of the calendar this event lives on.")
     title: str
     description: str | None

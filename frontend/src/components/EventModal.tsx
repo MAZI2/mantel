@@ -10,6 +10,7 @@ import { rememberLastTarget } from './lastEventTarget'
 import { DEFAULT_MINUTES, endFor, toLocalInput } from './eventTimes'
 import { acquireReloadGuard } from '../hooks/useVersionPoll'
 import { type Freq, RecurrencePicker, buildRule, parseRule } from './RecurrencePicker'
+import { PALETTE } from '../views/settings/palette'
 
 interface Props {
   event: CalendarEvent | null
@@ -40,6 +41,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
   const [title, setTitle] = useState(event?.title ?? '')
   const [location, setLocation] = useState(event?.location ?? '')
   const [description, setDescription] = useState(event?.description ?? '')
+  const [colorOverride, setColorOverride] = useState<string | null>(event?.color_override ?? null)
   const [allDay, setAllDay] = useState(event?.all_day ?? false)
   // Whose event is this? Chosen first, because it is the question somebody actually
   // has in mind -- the calendar is a consequence of it. Derived from the event's own
@@ -105,6 +107,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
       title: title.trim(),
       location: location.trim() || null,
       description: description.trim() || null,
+      color_override: colorOverride,
       start_at: startISO,
       end_at: endISO,
       all_day: allDay,
@@ -215,6 +218,38 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
             {note}
           </p>
         )}
+
+        <fieldset className="event-colour" disabled={readOnly}>
+          <legend>Event colour</legend>
+          <div className="event-colour__choices">
+            <button
+              type="button"
+              className="chipbtn"
+              aria-pressed={colorOverride === null}
+              onClick={() => setColorOverride(null)}
+            >
+              Default colour
+            </button>
+            {PALETTE.map((color) => (
+              <button
+                key={color}
+                type="button"
+                className="event-colour__swatch"
+                style={{ background: color }}
+                aria-label={`Event colour ${color}`}
+                aria-pressed={colorOverride === color}
+                onClick={() => setColorOverride(color)}
+              />
+            ))}
+            <input
+              type="color"
+              className="event-colour__custom"
+              aria-label="Custom event colour"
+              value={colorOverride ?? event?.remote_color ?? choices.find((c) => c.id === calendarId)?.color ?? '#3b82f6'}
+              onChange={(e) => setColorOverride(e.target.value)}
+            />
+          </div>
+        </fieldset>
 
         <div className="field field--row">
           <label className="field">

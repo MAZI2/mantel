@@ -127,6 +127,20 @@ def test_push_patches_an_edited_event(client, db, setup, fake):
     assert body["location"] == "Field 3"
 
 
+def test_editing_an_imported_event_does_not_overwrite_its_google_colour(client, db, setup, fake):
+    fake.pages = [([gevent(
+        "g1", "From Google", "2026-08-03T17:00:00Z", "2026-08-03T18:00:00Z",
+        colorId="5",
+    )], "t1")]
+    google_sync.pull_calendar(db, setup["cal"])
+    event = db.query(Event).one()
+    client.patch(f"/api/events/{event.id}", json={"title": "New title"})
+    google_sync.push_pending(db)
+    assert "colorId" not in fake.patched[0][1], "title edits must leave Google's colour untouched"
+    assert "color_override" not in fake.patched[0][1]
+    assert client.get(f"/api/events/{event.id}").json()["color"] == "#fbd75b"
+
+
 def test_push_deletes_remotely_then_locally(client, db, setup, fake):
     ev = new_event(client, setup["cal"].id).json()
     google_sync.push_pending(db)

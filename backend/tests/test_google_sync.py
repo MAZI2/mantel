@@ -119,6 +119,99 @@ def test_incremental_pull_sends_stored_sync_token(client, db, fake, gcal):
     assert gcal.sync_token == "t2"
 
 
+@pytest.mark.parametrize("kind", ["timed", "all-day", "recurring"])
+def test_google_event_colours_are_displayed_and_follow_remote_changes(
+    client, db, fake, gcal, kind,
+):
+    def remote(colour=None):
+        if kind == "all-day":
+            item = gallday("g1", "Coloured", "2026-08-03", "2026-08-04")
+        else:
+            item = gevent("g1", "Coloured", "2026-08-03T13:00:00Z", "2026-08-03T14:00:00Z")
+        if kind == "recurring":
+            item["recurringEventId"] = "series"
+        if colour is not None:
+            item["colorId"] = colour
+        return item
+
+    params = {"start": "2026-08-01T00:00:00Z", "end": "2026-08-10T00:00:00Z"}
+    for colour, expected in [("5", "#fbd75b"), ("11", "#dc2127"), (None, "#3b82f6")]:
+        fake.pages = [([remote(colour)], "next")]
+        google_sync.pull_calendar(db, gcal)
+        event = client.get("/api/events", params=params).json()[0]
+        assert event["color"] == expected
+        assert event["remote_color"] == (expected if colour else None)
+        assert event["color_override"] is None
+
+
+def test_local_colour_wins_but_resetting_it_restores_the_latest_google_colour(
+    client, db, fake, gcal,
+):
+    def remote(colour):
+        return gevent("g1", "Coloured", "2026-08-03T13:00:00Z", "2026-08-03T14:00:00Z",
+                      colorId=colour)
+
+    fake.pages = [([remote("5")], "t1")]
+    google_sync.pull_calendar(db, gcal)
+    event = db.query(Event).one()
+    event.color_override = "#ec4899"
+    db.commit()
+    fake.pages = [([remote("11")], "t2")]
+    google_sync.pull_calendar(db, gcal)
+    shown = client.get(f"/api/events/{event.id}").json()
+    assert shown["color"] == "#ec4899"
+    assert shown["remote_color"] == "#dc2127"
+    reset = client.patch(f"/api/events/{event.id}", json={"color_override": None}).json()
+    assert reset["color"] == "#dc2127"
+
+
+def test_unknown_google_colour_falls_back_to_the_calendar_colour(client, db, fake, gcal):
+    fake.pages = [([gevent(
+        "g1", "Future colour", "2026-08-03T13:00:00Z", "2026-08-03T14:00:00Z",
+        colorId="unknown",
+    )], "t1")]
+    google_sync.pull_calendar(db, gcal)
+    event = db.query(Event).one()
+    assert client.get(f"/api/events/{event.id}").json()["color"] == "#3b82f6"
+
+
+def test_upgrade_backfills_existing_colours_once_and_keeps_deletions_and_local_edits(
+    client, db, fake, gcal,
+):
+    def remote(gid, colour=None, title="From Google"):
+        item = gevent(gid, title, "2026-08-03T13:00:00Z", "2026-08-03T14:00:00Z")
+        if colour:
+            item["colorId"] = colour
+        return item
+
+    fake.pages = [([remote("g1"), remote("removed"), remote("editing")], "old")]
+    google_sync.pull_calendar(db, gcal)
+    original = db.query(Event).filter_by(google_event_id="g1").one()
+    original.color_override = "#ec4899"
+    editing = db.query(Event).filter_by(google_event_id="editing").one()
+    editing.title = "Pending local edit"
+    editing.sync_state = "pending_update"
+    gcal.remote_colors_synced = None  # database upgraded from before colour import
+    db.commit()
+    fake.pages = [
+        ([remote("g1", "5"), remote("removed", "5"), remote("editing", "5")], "snapshot"),
+        ([{"id": "removed", "status": "cancelled"}], "latest"),
+    ]
+    google_sync.pull_calendar(db, gcal)
+    db.refresh(original)
+    db.refresh(editing)
+    assert original.remote_color == "#fbd75b"
+    assert original.color_override == "#ec4899"
+    assert editing.title == "Pending local edit"
+    assert editing.sync_state == "pending_update"
+    assert db.query(Event).filter_by(google_event_id="removed").count() == 0
+    assert gcal.sync_token == "latest"
+    assert gcal.remote_colors_synced is True
+    fake.pages = [([], "next")]
+    google_sync.pull_calendar(db, gcal)
+    assert fake.last_sync_token == "latest", "only the first upgraded sync needs a snapshot"
+
+
 def test_incremental_pull_updates_existing_event(client, db, fake, gcal):
     fake.pages = [
         ([gevent("g1", "Standup", "2026-07-30T13:00:00Z", "2026-07-30T13:30:00Z")], "t1"),
@@ -205,6 +298,57 @@ def test_recurring_instances_are_flagged(client, db, fake, gcal):
     ]
     google_sync.pull_calendar(db, gcal)
     assert db.query(Event).one().recurring_event_id == "g1"
+
+
+@pytest.mark.parametrize("full_resync", [False, True])
+def test_remote_updates_keep_individual_event_colours(client, db, fake, gcal, full_resync):
+    def remote(title):
+        return gevent("g1", title, "2026-08-03T13:00:00Z", "2026-08-03T14:00:00Z")
+
+    fake.pages = [([remote("Original")], "t1")]
+    google_sync.pull_calendar(db, gcal)
+    event = db.query(Event).one()
+    event.color_override = "#ec4899"
+    db.commit()
+    fake.expire_next_sync_token = full_resync
+    fake.pages = [([remote("Changed on phone")], "t2")]
+    google_sync.pull_calendar(db, gcal)
+    events = client.get("/api/events", params={
+        "start": "2026-08-01T00:00:00Z", "end": "2026-08-10T00:00:00Z",
+    }).json()
+    assert len(events) == 1
+    assert events[0]["title"] == "Changed on phone"
+    assert events[0]["color"] == events[0]["color_override"] == "#ec4899"
+
+
+def test_google_instances_inherit_the_series_colour_and_allow_individual_overrides(
+    client, db, fake, gcal,
+):
+    master = client.post("/api/events", json={
+        "calendar_id": gcal.id, "title": "Weekly",
+        "start_at": "2026-08-03T13:00:00Z", "end_at": "2026-08-03T14:00:00Z",
+        "recurrence_rule": "FREQ=WEEKLY;COUNT=2", "color_override": "#ec4899",
+    }).json()
+    google_sync.push_pending(db)
+    fake.pages = [([
+        gevent("g1_1", "Weekly", "2026-08-03T13:00:00Z", "2026-08-03T14:00:00Z",
+               recurringEventId="g1"),
+        gevent("g1_2", "Weekly", "2026-08-10T13:00:00Z", "2026-08-10T14:00:00Z",
+               recurringEventId="g1"),
+    ], "t1")]
+    google_sync.pull_calendar(db, gcal)
+    params = {"start": "2026-08-01T00:00:00Z", "end": "2026-09-01T00:00:00Z"}
+    events = client.get("/api/events", params=params).json()
+    assert len(events) == 2
+    assert all(event["color"] == "#ec4899" for event in events)
+    first_id = events[0]["id"]
+    assert client.get(f"/api/events/{first_id}").json()["color"] == "#ec4899"
+    assert client.patch(f"/api/events/{first_id}", json={"color_override": "#22c55e"}).json()[
+        "color"
+    ] == "#22c55e"
+    client.patch(f"/api/events/{master['id']}", json={"color_override": "#eab308"})
+    events = client.get("/api/events", params=params).json()
+    assert [event["color"] for event in events] == ["#22c55e", "#eab308"]
 
 
 def test_disabled_calendar_is_not_pulled(client, db, fake, gcal):

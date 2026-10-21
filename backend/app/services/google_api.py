@@ -48,6 +48,9 @@ class GoogleCalendarClient:
             if not page_token:
                 return items
 
+    def get_colors(self) -> dict:
+        return self._request("GET", "/colors")
+
     def list_events(
         self,
         calendar_id: str,

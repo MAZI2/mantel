@@ -35,6 +35,7 @@ class ICloudProvider:
     # CalDAV returns the master untouched, so our copy stays the one that is drawn
     # and `recurrence.py` expands it. See the module docstring.
     expands_recurrence = False
+    supports_event_colors = False
 
     def __init__(self, client: CalDavClient, home_url: str, home_timezone: str = "UTC"):
         self._dav = client

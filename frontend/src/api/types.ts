@@ -57,6 +57,8 @@ export interface CalendarEvent {
   calendar_id: number
   calendar_name: string
   color: string
+  color_override: string | null
+  remote_color: string | null
   user_id: number | null
   title: string
   description: string | null
@@ -78,6 +80,7 @@ export interface EventInput {
   title: string
   description?: string | null
   location?: string | null
+  color_override?: string | null
   start_at: string
   end_at: string
   all_day?: boolean

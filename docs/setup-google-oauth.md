@@ -320,6 +320,14 @@ private IP exposes nothing. A port forward exposes your family's calendar to the
 
 ## Troubleshooting
 
+**Google event colours**
+
+Event-specific colours chosen in Google Calendar are imported automatically. Changing or
+removing a colour in Google updates Mantel on the next sync. A custom colour chosen in
+Mantel takes precedence; choose **Default colour** in the event dialog to use Google's
+colour again. Existing events are refreshed once after upgrading, within the configured
+sync window, so there is no need to reconnect your Google account.
+
 **"Invalid Redirect: must end with a public top-level domain"**
 Google is refusing the address, not your typing. It won't take a LAN IP, a `.local` name, or a
 bare machine name. See [Connecting when your app is on a LAN

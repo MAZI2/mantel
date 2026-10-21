@@ -17,6 +17,15 @@ class FakeGoogle:
         self.fail_delete_with: int | None = None
         self.last_time_min: str | None = None
         self.last_sync_token: str | None = None
+        self.colors = {
+            "calendar": {"5": {"background": "#000000"}},
+            "event": {
+                "2": {"background": "#7ae7bf", "foreground": "#1d1d1d"},
+                "5": {"background": "#fbd75b", "foreground": "#1d1d1d"},
+                "11": {"background": "#dc2127", "foreground": "#1d1d1d"},
+            },
+        }
+        self.colors_requests = 0
 
     # -- the interface GoogleCalendarClient presents ---------------------------
     # This sits *below* the provider boundary, so tests using it also exercise the
@@ -24,6 +33,10 @@ class FakeGoogle:
 
     def list_calendars(self) -> list[dict]:
         return self.calendars
+
+    def get_colors(self) -> dict:
+        self.colors_requests += 1
+        return self.colors
 
     def list_events(self, calendar_id, sync_token=None, time_min=None):
         self.last_sync_token = sync_token

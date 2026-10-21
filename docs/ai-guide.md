@@ -74,6 +74,12 @@ GET /api/calendars?claimed=true
 Use `GET /api/calendars` to pick a `calendar_id` before creating anything. Only calendars with
 `"writable": true` accept new events.
 
+An event can have its own Mantel display colour: send `color_override`, for example
+`"#ec4899"`, when creating or updating it. Send `null` to restore the default colour.
+The resolved `color` includes this override. Otherwise it uses a Mantel series override,
+the imported `remote_color` (Google's event colour), or the calendar's colour, in that order.
+Mantel overrides do not change the colour shown by Google Calendar or iCloud.
+
 ### 3. Add an event
 
 ```http

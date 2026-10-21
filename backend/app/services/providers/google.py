@@ -18,12 +18,14 @@ class GoogleProvider:
     # Events are requested with singleEvents, so Google hands back the individual
     # occurrences of a series and our copy of the master must stop being drawn.
     expands_recurrence = True
+    supports_event_colors = True
 
     def __init__(
         self, access_token: str | None = None, client: GoogleCalendarClient | None = None
     ):
         # `client` is how tests substitute a fake without going through a token.
         self._client = client if client is not None else GoogleCalendarClient(access_token or "")
+        self._event_colors: dict | None = None
 
     def list_calendars(self) -> list[RemoteCalendar]:
         return [
@@ -45,7 +47,14 @@ class GoogleProvider:
         items, next_token = self._client.list_events(
             calendar_id, sync_token=sync_token, time_min=time_min
         )
-        return [_to_remote(item) for item in items if item.get("id")], next_token
+        colors = self._colors() if any(item.get("colorId") for item in items) else {}
+        return [_to_remote(item, colors) for item in items if item.get("id")], next_token
+
+    def _colors(self) -> dict:
+        # One palette request per provider instance, shared by all events in a pull.
+        if self._event_colors is None:
+            self._event_colors = self._client.get_colors().get("event", {})
+        return self._event_colors
 
     def create_event(self, calendar_id: str, event: RemoteEvent) -> RemoteEvent:
         return _to_remote(self._client.insert_event(calendar_id, _to_body(event)))
@@ -62,7 +71,7 @@ class GoogleProvider:
 # ----------------------------- translation -----------------------------------
 
 
-def _to_remote(item: dict) -> RemoteEvent:
+def _to_remote(item: dict, colors: dict | None = None) -> RemoteEvent:
     if item.get("status") == "cancelled":
         return RemoteEvent(id=item.get("id", ""), deleted=True)
 
@@ -73,6 +82,7 @@ def _to_remote(item: dict) -> RemoteEvent:
         title=item.get("summary") or "(no title)",
         description=item.get("description"),
         location=item.get("location"),
+        color=(colors or {}).get(str(item.get("colorId")), {}).get("background"),
         start=start,
         end=end,
         all_day=all_day,

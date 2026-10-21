@@ -46,6 +46,39 @@ def test_adds_a_column_an_older_release_did_not_have(fresh_schema):
     assert "is_master" in columns("events")
 
 
+def test_adds_event_colour_to_an_existing_install_without_changing_its_events(client, fresh_schema):
+    cal = client.post("/api/calendars", json={"name": "Family"}).json()
+    event = client.post("/api/events", json={
+        "calendar_id": cal["id"], "title": "Before upgrade",
+        "start_at": "2026-08-03T17:00:00Z", "end_at": "2026-08-03T18:00:00Z",
+    }).json()
+    with engine.begin() as conn:
+        drop_column(conn, "events", "color_override")
+    assert "events.color_override" in sync(engine)
+    unchanged = client.get(f"/api/events/{event['id']}").json()
+    assert unchanged["title"] == "Before upgrade"
+    assert unchanged["color_override"] is None
+    assert unchanged["color"] == cal["color"]
+    updated = client.patch(f"/api/events/{event['id']}", json={"color_override": "#ec4899"})
+    assert updated.status_code == 200
+    assert updated.json()["color"] == "#ec4899"
+
+
+def test_upgrading_adds_nullable_provider_colours_and_marks_calendars_for_backfill(fresh_schema):
+    with engine.begin() as conn:
+        drop_column(conn, "events", "remote_color")
+        drop_column(conn, "calendars", "remote_colors_synced")
+        conn.execute(text(
+            "INSERT INTO calendars (name, sync_enabled, access_role, created_at, updated_at) "
+            "VALUES ('Existing calendar', 1, 'owner', '2026-08-03', '2026-08-03')"
+        ))
+    applied = sync(engine)
+    assert "events.remote_color" in applied
+    assert "calendars.remote_colors_synced" in applied
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT remote_colors_synced FROM calendars")).scalar() is None
+
+
 def test_recreates_the_index_for_a_newly_added_column(fresh_schema):
     with engine.begin() as conn:
         drop_column(conn, "events", "is_master")

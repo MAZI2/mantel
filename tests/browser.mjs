@@ -164,6 +164,61 @@ try {
   }
   console.log('PASS: day start/end settings save, survive reload and control the scrollable hours')
 
+  const colourTest = await open()
+  let testCalendarId
+  try {
+    const { context, page } = colourTest
+    const response = await context.request.post('/api/calendars', { data: {
+      name: 'Browser event colour test', color_override: '#3b82f6',
+    } })
+    assert.equal(response.status(), 201)
+    testCalendarId = (await response.json()).id
+    await context.unroute('**/api/events?*')
+    await page.locator('.timegrid__col').first().locator('.timegrid__slot').nth(10).click()
+    const starts = page.getByLabel('Starts', { exact: true })
+    const ends = page.getByLabel('Ends', { exact: true })
+    assert.ok((await starts.inputValue()).endsWith('T10:00'))
+    assert.ok((await ends.inputValue()).endsWith('T11:00'), 'new event should last one hour')
+    await starts.fill('2026-10-21T14:00')
+    assert.equal(await ends.inputValue(), '2026-10-21T15:00', 'default end should follow the start')
+    await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Individual colour test')
+    await page.getByRole('combobox', { name: 'Calendar', exact: true }).selectOption(String(testCalendarId))
+    await page.getByRole('button', { name: 'Event colour #ec4899', exact: true }).click()
+    const createdResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/events' && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    const created = await (await createdResponse).json()
+    assert.equal(created.color_override, '#ec4899')
+    assert.equal(new Date(created.end_at) - new Date(created.start_at), 3_600_000)
+    await page.locator('.modal').waitFor({ state: 'hidden' })
+
+    for (const [colour, expected] of [['#123abc', '#123abc'], [null, '#3b82f6']]) {
+      await page.reload()
+      const event = page.locator('.event-block').filter({ hasText: 'Individual colour test' })
+      await event.waitFor()
+      assert.equal(await event.evaluate((el) => el.style.background),
+        colour === '#123abc' ? 'rgb(236, 72, 153)' : 'rgb(18, 58, 188)')
+      await event.click()
+      if (colour) await page.getByLabel('Custom event colour', { exact: true }).fill(colour)
+      else await page.getByRole('button', { name: 'Default colour', exact: true }).click()
+      const savedResponse = page.waitForResponse((response) =>
+        new URL(response.url()).pathname === `/api/events/${created.id}` && response.request().method() === 'PATCH')
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      const saved = await (await savedResponse).json()
+      assert.equal(saved.color_override, colour)
+      assert.equal(saved.color, expected)
+      await page.locator('.modal').waitFor({ state: 'hidden' })
+    }
+    await page.reload()
+    const restored = page.locator('.event-block').filter({ hasText: 'Individual colour test' })
+    await restored.waitFor()
+    assert.equal(await restored.evaluate((el) => el.style.background), 'rgb(59, 130, 246)')
+  } finally {
+    if (testCalendarId) await colourTest.context.request.delete(`/api/calendars/${testCalendarId}`)
+    await colourTest.context.close()
+  }
+  console.log('PASS: one-hour defaults and per-event preset/custom colours persist and reset in the UI')
+
   for (const scenario of [
     { weekStartsOn: 1, time: '2026-10-25T23:59:45+01:00', title: 'Oct 26 – Nov 1, 2026' },
     { weekStartsOn: 0, time: '2026-10-24T23:59:45+02:00', title: 'Oct 25 – 31, 2026' },

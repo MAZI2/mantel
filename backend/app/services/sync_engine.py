@@ -118,11 +118,31 @@ def pull_calendar(db: Session, cal: Calendar) -> int:
         datetime.now(UTC) - timedelta(days=get_settings().sync_past_days)
     ).isoformat()
 
+    color_overrides: dict[str, str] = {}
     try:
+        snapshot = []
+        if provider.supports_event_colors and cal.sync_token and not cal.remote_colors_synced:
+            # Read the snapshot first, then the existing incremental cursor: its newer
+            # updates/deletions win, and pending local edits still pass through the guard.
+            snapshot, _ = provider.list_events(cal.remote_id, time_min=time_min)
         items, next_token = provider.list_events(
             cal.remote_id, sync_token=cal.sync_token, time_min=time_min
         )
+        if snapshot:
+            # Deduplicate before inserting: this session deliberately disables autoflush.
+            items = list({item.id: item for item in [*snapshot, *items]}.values())
     except SyncTokenExpired:
+        # Display choices belong to Mantel, so rebuilding the provider's rows must
+        # carry them forward by remote id rather than erase them with the cursor.
+        color_overrides = dict(
+            db.execute(
+                select(Event.google_event_id, Event.color_override).where(
+                    Event.calendar_id == cal.id,
+                    Event.origin == account.provider,
+                    Event.color_override.is_not(None),
+                )
+            ).all()
+        )
         # The provider discarded our incremental cursor. Drop everything it gave us
         # before and start clean -- anything created locally and not yet pushed is
         # preserved, because it does not carry this provider's origin.
@@ -139,9 +159,20 @@ def pull_calendar(db: Session, cal: Calendar) -> int:
     changes = 0
     for item in items:
         changes += _apply_remote_event(db, cal, item)
+    if color_overrides:
+        # This session disables autoflush; the replacement rows must exist for the query.
+        db.flush()
+        for event in db.scalars(
+            select(Event).where(
+                Event.calendar_id == cal.id,
+                Event.google_event_id.in_(color_overrides),
+            )
+        ):
+            event.color_override = color_overrides[event.google_event_id]
     changes += _prune_stale_occurrences(db, cal, items)
 
     cal.sync_token = next_token
+    cal.remote_colors_synced = True
     cal.last_synced_at = utcnow_naive()
     cal.sync_error = None
     db.commit()
@@ -170,6 +201,7 @@ def _apply_remote_event(db: Session, cal: Calendar, item: RemoteEvent) -> int:
             title=item.title,
             description=item.description,
             location=item.location,
+            remote_color=item.color,
             start_at=item.start,
             end_at=item.end,
             all_day=item.all_day,
@@ -195,6 +227,7 @@ def _apply_remote_event(db: Session, cal: Calendar, item: RemoteEvent) -> int:
     existing.title = item.title
     existing.description = item.description
     existing.location = item.location
+    existing.remote_color = item.color
     existing.start_at = item.start
     existing.end_at = item.end
     existing.all_day = item.all_day

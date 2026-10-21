@@ -84,6 +84,7 @@ class RemoteEvent:
     title: str = ""
     description: str | None = None
     location: str | None = None
+    color: str | None = None  # Resolved provider event color; not a local display override.
     start: datetime | None = None
     end: datetime | None = None
     all_day: bool = False
@@ -98,6 +99,7 @@ class CalendarProvider(Protocol):
     """The surface `sync_engine` is written against."""
 
     expands_recurrence: bool
+    supports_event_colors: bool
 
     def list_calendars(self) -> list[RemoteCalendar]: ...
 

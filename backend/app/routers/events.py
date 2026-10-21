@@ -27,6 +27,28 @@ def _load(db: Session, event_id: int) -> Event:
     return ev
 
 
+def _series_colors(db: Session, events: list[Event]) -> dict[tuple[int, str], str]:
+    instances = [event for event in events if event.recurring_event_id]
+    if not instances:
+        return {}
+    # Google expands a locally created series into separate rows. Resolve the master's
+    # display color in one query, while allowing individual instances to override it.
+    rows = db.execute(
+        select(Event.calendar_id, Event.google_event_id, Event.color_override).where(
+            Event.calendar_id.in_({event.calendar_id for event in instances}),
+            Event.google_event_id.in_({event.recurring_event_id for event in instances}),
+            Event.recurrence_rule.is_not(None),
+            Event.color_override.is_not(None),
+        )
+    )
+    return {(calendar_id, remote_id): color for calendar_id, remote_id, color in rows}
+
+
+def _event_out(db: Session, event: Event) -> EventOut:
+    inherited = _series_colors(db, [event]).get((event.calendar_id, event.recurring_event_id))
+    return event_out(event, inherited)
+
+
 def _id_list(raw: str, field: str) -> list[int]:
     """Parse a comma-separated id filter, or 400 if it isn't one.
 
@@ -156,7 +178,10 @@ def list_events(
             expanded.append(row)
 
     expanded.sort(key=lambda e: (e.start_at, e.id))
-    return [event_out(e) for e in expanded]
+    series_colors = _series_colors(db, expanded)
+    return [
+        event_out(e, series_colors.get((e.calendar_id, e.recurring_event_id))) for e in expanded
+    ]
 
 
 @router.post(
@@ -191,12 +216,12 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> EventOu
     db.commit()
     request_push()
     calendar_changed(db)
-    return event_out(_load(db, ev.id))
+    return _event_out(db, _load(db, ev.id))
 
 
 @router.get("/{event_id}", response_model=EventOut, summary="Get one event")
 def get_event(event_id: int, db: Session = Depends(get_db)) -> EventOut:
-    return event_out(_load(db, event_id))
+    return _event_out(db, _load(db, event_id))
 
 
 # What a moved event carries over. Everything a person can see or set, and nothing that
@@ -212,10 +237,11 @@ _MOVED_FIELDS = (
     "recurrence_rule",
     "exdates",
     "status",
+    "color_override",
 )
 
 
-_NULLABLE = {"description", "location", "timezone", "recurrence_rule"}
+_NULLABLE = {"description", "location", "timezone", "recurrence_rule", "color_override"}
 
 
 def _move_target(db: Session, ev: Event, calendar_id: int) -> Calendar:
@@ -312,7 +338,7 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
         moved = _move_event(db, ev, target, changes)
         request_push()
         calendar_changed(db)
-        return event_out(_load(db, moved.id))
+        return _event_out(db, _load(db, moved.id))
 
     for key, value in changes.items():
         setattr(ev, key, value)
@@ -326,7 +352,7 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
     db.commit()
     request_push()
     calendar_changed(db)
-    return event_out(_load(db, event_id))
+    return _event_out(db, _load(db, event_id))
 
 
 @router.delete(

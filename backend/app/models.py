@@ -101,6 +101,8 @@ class Calendar(TimestampMixin, Base):
 
     sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     sync_token: Mapped[str | None] = mapped_column(Text)
+    # NULL on upgraded calendars triggers one snapshot to backfill existing event colors.
+    remote_colors_synced: Mapped[bool | None] = mapped_column(Boolean)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sync_error: Mapped[str | None] = mapped_column(Text)
     access_role: Mapped[str] = mapped_column(String(32), default="owner")
@@ -149,6 +151,9 @@ class Event(TimestampMixin, Base):
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     location: Mapped[str | None] = mapped_column(String(500))
+    # A Mantel display preference; provider updates must not replace it.
+    color_override: Mapped[str | None] = mapped_column(String(9))
+    remote_color: Mapped[str | None] = mapped_column(String(9))
 
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)

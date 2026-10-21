@@ -196,6 +196,8 @@ def materialise(event: Event, window_start: datetime, window_end: datetime) -> l
             title=event.title,
             description=event.description,
             location=event.location,
+            color_override=event.color_override,
+            remote_color=event.remote_color,
             start_at=start,
             end_at=start + duration,
             all_day=event.all_day,

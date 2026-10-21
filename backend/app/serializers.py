@@ -33,13 +33,15 @@ def calendar_out(cal: Calendar) -> CalendarOut:
     )
 
 
-def event_out(ev: Event) -> EventOut:
+def event_out(ev: Event, series_color_override: str | None = None) -> EventOut:
     cal = ev.calendar
     return EventOut(
         id=ev.id,
         calendar_id=ev.calendar_id,
         calendar_name=cal.name,
-        color=calendar_color(cal),
+        color=ev.color_override or series_color_override or ev.remote_color or calendar_color(cal),
+        color_override=ev.color_override,
+        remote_color=ev.remote_color,
         user_id=cal.claimed_by_user_id,
         title=ev.title,
         description=ev.description,

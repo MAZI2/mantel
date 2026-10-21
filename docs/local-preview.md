@@ -23,10 +23,16 @@ port if needed (use the same value for subsequent commands).
 grid. Existing saved hours are respected; a fresh database defaults to 07:00–22:00.
 Choose 00:00–24:00 if you want the entire day.
 
+New events default to one hour. The event dialog's **Event colour** controls apply
+to that event in Mantel; **Default colour** restores its imported Google event colour,
+series colour or calendar colour. After upgrading, the next sync also fetches colours
+for existing Google events in the configured sync window.
+
 The separate Compose project binds only to localhost. It uses a fresh named database
 volume, ignores the production `.env`, and disables calendar sync and release checks.
-Browser tests mock their calendar data and settings, so they do not modify your preview
-events. Tests use Europe/Ljubljana time and cover overnight week rollover, including DST.
+Browser tests mock calendar data and settings, with a disposable local calendar for
+event-saving checks that is removed afterwards. They do not modify your preview events.
+Tests use Europe/Ljubljana time and cover overnight week rollover, including DST.
 No host `node_modules`, Python virtualenv or browser profiles are created.
 
 Keep the preview running while reviewing changes. When you say **commit**, run the

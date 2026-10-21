@@ -50,6 +50,60 @@ def test_color_override_beats_user_color(client, local_calendar):
     assert make_event(client, local_calendar["id"]).json()["color"] == "#123456"
 
 
+def test_event_colour_overrides_its_calendar_without_recolouring_other_events(
+    client, local_calendar,
+):
+    calendar_id = local_calendar["id"]
+    client.patch(f"/api/calendars/{calendar_id}", json={"color_override": "#123456"})
+    event = make_event(client, calendar_id, color_override="#EC4899").json()
+    assert event["color"] == event["color_override"] == "#ec4899"
+    assert make_event(client, calendar_id).json()["color"] == "#123456"
+    assert client.get(f"/api/events/{event['id']}").json()["color_override"] == "#ec4899"
+
+    updated = client.patch(f"/api/events/{event['id']}", json={"title": "Renamed"}).json()
+    assert updated["color_override"] == "#ec4899", "other edits must keep the custom colour"
+    reset = client.patch(f"/api/events/{event['id']}", json={"color_override": None}).json()
+    assert reset["color_override"] is None
+    assert reset["color"] == "#123456"
+
+
+@pytest.mark.parametrize("colour", ["red", "#12345", "#zzzzzz", ""])
+def test_invalid_event_colours_are_rejected_on_create_and_update(client, local_calendar, colour):
+    assert make_event(client, local_calendar["id"], color_override=colour).status_code == 422
+    event = make_event(client, local_calendar["id"]).json()
+    assert client.patch(
+        f"/api/events/{event['id']}", json={"color_override": colour}
+    ).status_code == 422
+
+
+def test_repeating_events_keep_their_colour_when_expanded(client, local_calendar):
+    make_event(
+        client, local_calendar["id"], color_override="#22c55e",
+        recurrence_rule="FREQ=DAILY;COUNT=3",
+    )
+    events = client.get("/api/events", params={
+        "start": "2026-08-01T00:00:00Z", "end": "2026-08-10T00:00:00Z",
+    }).json()
+    assert len(events) == 3
+    assert all(event["color"] == event["color_override"] == "#22c55e" for event in events)
+
+
+def test_event_colour_survives_a_calendar_move_and_can_be_reset_during_the_move(
+    client, local_calendar,
+):
+    other = client.post(
+        "/api/calendars", json={"name": "Other", "color_override": "#123456"},
+    ).json()
+    event = make_event(client, local_calendar["id"], color_override="#ec4899").json()
+    moved = client.patch(f"/api/events/{event['id']}", json={"calendar_id": other["id"]}).json()
+    assert moved["color"] == moved["color_override"] == "#ec4899"
+    reset = client.patch(f"/api/events/{moved['id']}", json={
+        "calendar_id": local_calendar["id"], "color_override": None,
+    }).json()
+    assert reset["color_override"] is None
+    assert reset["color"] == local_calendar["color"]
+
+
 @pytest.mark.parametrize(
     "start,end,expected",
     [
