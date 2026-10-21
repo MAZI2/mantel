@@ -94,6 +94,15 @@ leaking — push it back behind the interface.
 
 ## Running things
 
+### This fork's UI review workflow
+
+Use `./local.sh up` for the isolated localhost preview and `./local.sh test` for
+containerized checks. See [docs/local-preview.md](docs/local-preview.md). Leave the
+preview available while the user reviews attempts. When the user says **commit**,
+run the checks, commit the agreed changes, then run `./local.sh clean` to remove the
+preview database, containers, test images and dedicated build cache. Do not globally
+prune Docker or touch the production Compose project.
+
 **Docker is the deployment.** `./run.sh` builds and starts it; nothing else is supported.
 
 ```bash

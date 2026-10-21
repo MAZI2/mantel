@@ -420,30 +420,6 @@ function DisplayTab() {
         ))}
       </div>
 
-      <div className="row">
-        <div className="row__name row__name--static">Day starts / ends</div>
-        <select
-          value={settings.day_start_hour}
-          onChange={(e) => save.mutate({ day_start_hour: Number(e.target.value) })}
-        >
-          {hours().map((h) => (
-            <option key={h} value={h}>
-              {h}:00
-            </option>
-          ))}
-        </select>
-        <select
-          value={settings.day_end_hour}
-          onChange={(e) => save.mutate({ day_end_hour: Number(e.target.value) })}
-        >
-          {hours().map((h) => (
-            <option key={h} value={h}>
-              {h}:00
-            </option>
-          ))}
-        </select>
-      </div>
-
       <h3 className="settings__h3">Shortcut button</h3>
       <p className="hint">
         Adds a button to the top of every page, linking anywhere you like — another dashboard,
@@ -494,8 +470,4 @@ function syncSummary(server: AppSettings['server']): string {
     server.icloud_linked ? 'Apple' : null,
   ].filter(Boolean)
   return ready.length ? `${ready.join(' and ')} sync configured` : 'No calendar sync configured'
-}
-
-function hours(): number[] {
-  return Array.from({ length: 25 }, (_, i) => i)
 }

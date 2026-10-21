@@ -406,20 +406,6 @@ button {
 
 
 /* ------------------------------ phone layout ------------------------------ */
-/* 640px rather than the nav's own 700px landscape breakpoint: a portrait tablet
-   is roomy enough for all four view buttons, a phone is not. */
-
-/* Above phone size the combined entry is redundant -- the four views are there. */
-.navbtn--calendar {
-  display: none;
-}
-
-.navviews {
-  /* `contents` so the four links stay direct flex children of the nav and keep
-     their sizing exactly as before. */
-  display: contents;
-}
-
 @media (max-width: 640px) {
   .topbar {
     padding: 4px 8px;
@@ -430,14 +416,6 @@ button {
     min-height: 36px;
     padding: 6px 14px;
     font-size: var(--font-xs);
-  }
-
-  .navbtn--calendar {
-    display: flex;
-  }
-
-  .navviews {
-    display: none;
   }
 
   /* Nothing on a phone is a kiosk that needs to be told which build it is running,

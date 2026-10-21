@@ -1,0 +1,52 @@
+# Standalone: never merge this with the Pi's docker-compose.yml or load its .env.
+services:
+  app:
+    image: mantel-local-preview:dev
+    build:
+      context: .
+      args:
+        APP_VERSION: local
+    ports:
+      - '127.0.0.1:${LOCAL_PORT:-8081}:8080'
+    networks:
+      default:
+        # Chromium treats the bare hostname "app" as the HTTPS-only .app TLD.
+        aliases: [mantel-preview.test]
+    volumes:
+      - preview-data:/data
+    environment:
+      BUILD_TIME: ${LOCAL_BUILD_TIME:-}
+      SYNC_ENABLED: 'false'
+      UPDATE_CHECK_ENABLED: 'false'
+      PUBLIC_BASE_URL: http://localhost:${LOCAL_PORT:-8081}
+    restart: 'no'
+
+  frontend-tests:
+    profiles: [test]
+    image: mantel-local-frontend-tests:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: frontend-tests
+
+  backend-tests:
+    profiles: [test]
+    image: mantel-local-backend-tests:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: backend-tests
+
+  browser-tests:
+    profiles: [test]
+    image: mantel-local-browser-tests:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: browser-tests
+    environment:
+      PREVIEW_URL: http://mantel-preview.test:8080
+    shm_size: 256mb
+
+volumes:
+  preview-data:

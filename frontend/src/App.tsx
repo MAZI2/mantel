@@ -9,16 +9,6 @@ import { useOnline } from './hooks/useOnline'
 import { useViewportFit } from './hooks/useViewportFit'
 import { applyTheme, isThemeId } from './theme'
 
-/** The four calendar views, each its own destination. A phone shows one entry for
- *  all of them instead — seven items plus a version badge do not fit across 390px,
- *  and the last one (Settings) was falling off the end. */
-const CALENDAR_VIEWS = [
-  { to: '/calendar/today', label: 'Today' },
-  { to: '/calendar/3day', label: '3 Day' },
-  { to: '/calendar/week', label: 'Week' },
-  { to: '/calendar/month', label: 'Month' },
-]
-
 const NAV = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/lists', label: 'Lists' },
@@ -68,26 +58,13 @@ export function App() {
         <Outlet />
       </main>
       <nav className="shell__nav">
-        {/* One entry on a phone, four on anything larger. Both are rendered and the
-            stylesheet picks -- a JS breakpoint would disagree with the CSS one that
-            already decides whether this nav is a side rail or a bottom bar. */}
         <NavLink
-          to="/calendar/today"
-          className="navbtn navbtn--calendar"
-          // Stays lit on every calendar view, not just Today, since it is now the
-          // way back to all four.
+          to="/calendar/week"
+          className="navbtn"
           aria-current={onCalendar ? 'page' : undefined}
         >
           <span>Calendar</span>
         </NavLink>
-
-        <span className="navviews">
-          {CALENDAR_VIEWS.map((item) => (
-            <NavLink key={item.to} to={item.to} className="navbtn">
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </span>
 
         {NAV.map((item) => (
           <NavLink key={item.to} to={item.to} className="navbtn">

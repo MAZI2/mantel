@@ -19,8 +19,7 @@ interface Props {
  *  the smaller ones rather than too late on the display that matters most. */
 const TWO_LINES_PX = 40
 
-/** Day view: one page, one column. 3 Day and Week scroll as a continuous strip instead
- *  (TimeStripView), but draw their columns with the same pieces. */
+/** A fixed set of day columns with a vertically scrolling, full-day timeline. */
 export function TimeGridView({
   days,
   events,

@@ -24,17 +24,16 @@ const router = createBrowserRouter([
     path: '/',
     element: <App />,
     children: [
-      // Opening the app with no route lands on today. A week is what you plan with;
-      // a day is what you came to check.
-      { index: true, element: <Navigate to="/calendar/today" replace /> },
-      { path: 'calendar/:view', element: <CalendarPage /> },
+      { index: true, element: <Navigate to="/calendar/week" replace /> },
+      { path: 'calendar/week', element: <CalendarPage /> },
+      { path: 'calendar/:view', element: <Navigate to="/calendar/week" replace /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'lists', element: <ListsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       // The API guide used to be its own page. Keep old bookmarks and kiosk
       // shortcuts working by sending them to the tab that replaced it.
       { path: 'docs', element: <Navigate to="/settings?tab=api" replace /> },
-      { path: '*', element: <Navigate to="/calendar/today" replace /> },
+      { path: '*', element: <Navigate to="/calendar/week" replace /> },
     ],
   },
 ])

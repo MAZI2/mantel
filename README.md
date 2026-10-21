@@ -405,6 +405,10 @@ calendar you write to, with Google and iCloud sync in both directions.
 
 ## Development
 
+For this fork's week-only UI and an isolated Docker preview on Arch Linux, use
+`./local.sh up`, then open <http://localhost:8081>. See
+[the local preview workflow](docs/local-preview.md) for testing and cleanup.
+
 ```bash
 # Backend
 cd backend

@@ -1,8 +1,4 @@
-/* A column flex rather than a grid with hand-counted rows: the header strip above
-   the calendar is now three optional pieces (toolbar, view tabs, people chips) and
-   an explicit `auto auto 1fr` silently puts the body in the wrong row whenever one
-   of them isn't rendered. Here the body simply takes what is left, however many
-   headers there are. */
+/* The toolbar keeps its natural height; the calendar fills the remaining space. */
 .calpage {
   height: 100%;
   display: flex;
@@ -21,7 +17,6 @@
    default to flex-shrink: 1, and when the grid wants room they get squeezed --
    which chopped the bottom off the people chips rather than shortening the grid. */
 .calpage__bar,
-.viewtabs,
 .peoplefilter {
   flex: 0 0 auto;
 }
@@ -113,14 +108,23 @@
 .timegrid {
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   --gutter: calc(52px * var(--scale));
 }
 
+/* Explicit rows keep the scroll body in the flexible track when there are no
+   all-day events. Otherwise it occupies an auto row and gets clipped by the page. */
+.timegrid__head { grid-row: 1; }
+.timegrid__allday { grid-row: 2; }
+.timegrid__body { grid-row: 3; }
+
 .timegrid__head,
 .timegrid__allday {
+  /* Reserve the same scrollbar space as the hours so all seven columns align. */
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
   display: grid;
   /* minmax(0, ...) not 1fr: a bare 1fr will not shrink below the column's
      min-content, which pushed Friday and Saturday off a phone screen -- and with
@@ -177,6 +181,11 @@
   display: grid;
   grid-template-columns: var(--gutter) repeat(var(--days, 7), minmax(0, 1fr));
   overflow-y: auto;
+  scrollbar-gutter: stable;
+  overflow-x: hidden;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  align-items: start;
   min-height: 0;
   position: relative;
 }
@@ -191,6 +200,11 @@
   text-align: right;
   padding-right: 6px;
   transform: translateY(-0.5em);
+}
+
+.timegrid__body .timegrid__hourlabel:first-child {
+  /* Midnight sits at the scroll boundary: centering its label would clip it. */
+  transform: none;
 }
 
 .timegrid__col {
@@ -804,45 +818,7 @@ a.btn {
 
 
 
-/* ---------------------- view switcher (phones only) ----------------------- */
-
-/* Above phone size the nav lists the four views, so this would be a duplicate. */
-.viewtabs {
-  display: none;
-}
-
 @media (max-width: 640px) {
-  /* One segmented control rather than four separate buttons: a single track with
-     dividers reads as "pick one of these", which four floating pills did not. */
-  .viewtabs {
-    display: flex;
-    gap: 2px;
-    margin: 8px 10px 0;
-    padding: 3px;
-    border-radius: 12px;
-    background: var(--bg-elev-2);
-  }
-
-  .viewtabs__tab {
-    flex: 1 1 0;
-    min-width: 0;
-    min-height: 36px;
-    padding: 6px 4px;
-    border-radius: 9px;
-    background: transparent;
-    color: var(--text-dim);
-    font-size: var(--font-sm);
-    font-weight: 600;
-    white-space: nowrap;
-    transition: background 120ms ease, color 120ms ease;
-  }
-
-  .viewtabs__tab[aria-current='page'] {
-    background: var(--bg);
-    color: var(--text);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  }
-
   /* A phone has no room for a 52px time gutter beside seven day columns. */
   .timegrid,
   .timestrip {
