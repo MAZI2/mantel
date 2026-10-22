@@ -201,3 +201,37 @@ def test_upgraded_database_actually_serves_requests(client, fresh_schema):
         "/api/events", params={"start": "2026-08-01T00:00:00Z", "end": "2026-09-01T00:00:00Z"}
     ).json()
     assert len(listed) == 2
+
+
+def test_registry_upgrade_adds_nullable_visibility_without_losing_saved_themes(tmp_path):
+    from sqlalchemy import create_engine
+
+    from app.profiles import RegistryBase
+
+    target = create_engine(f"sqlite:///{tmp_path / 'old-registry.db'}")
+    try:
+        with target.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE profile_preferences (identity TEXT, profile_id TEXT, "
+                    "theme TEXT, PRIMARY KEY (identity, profile_id))"
+                )
+            )
+            conn.execute(
+                text("INSERT INTO profile_preferences VALUES ('partner', 'shared', 'hearth')")
+            )
+        applied = sync(target, RegistryBase.metadata)
+        assert applied == ["profile_preferences.hidden_calendar_ids"]
+        column = next(
+            c
+            for c in inspect(target).get_columns("profile_preferences")
+            if c["name"] == "hidden_calendar_ids"
+        )
+        assert column["nullable"]
+        with target.connect() as conn:
+            assert conn.execute(
+                text("SELECT theme, hidden_calendar_ids FROM profile_preferences")
+            ).one() == ("hearth", None)
+        assert sync(target, RegistryBase.metadata) == []
+    finally:
+        target.dispose()

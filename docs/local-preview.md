@@ -72,7 +72,8 @@ does not prune Docker globally or touch other projects. These scripts stay in th
 for the next round. The Raspberry Pi deployment commands stay the same.
 
 The Display tab's colour theme is personal to the signed-in person within the selected
-profile; all other settings remain shared within each profile.
+profile, as is the dropdown’s visible calendar selection. Both persist on the server
+across devices; all other settings remain shared within each profile.
 Administrators can remove people in Settings → Profiles without deleting any
 profile events, connections or settings.
 

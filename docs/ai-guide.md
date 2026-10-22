@@ -5,9 +5,9 @@ proxy supplies `X-Mantel-Identity` and `X-Mantel-Proxy-Secret`; browsers must ne
 receive the proxy secret. `GET /api/session` reports your assigned profiles. Select
 one with `X-Mantel-Profile: <id>` (or `?profile=<id>`); omission uses your default.
 Every data endpoint checks membership, including for administrators. All members
-can edit everything in a shared profile. `GET/PATCH /api/settings` keeps `theme`
-personal to the signed-in identity within the selected profile; other settings are shared. `/api/admin/*` additionally requires an
-administrator. Users below are calendar owners within a profile, separate from
+can edit everything in a shared profile. `GET/PATCH /api/settings` keeps `theme` and
+`hidden_calendar_ids` personal to the signed-in identity within the selected profile;
+other settings are shared. `/api/admin/*` additionally requires an administrator. Users below are calendar owners within a profile, separate from
 these authenticated people. See [profiles.md](profiles.md) for server setup.
 
 - Base URL: the host serving the UI, plus `/api` — e.g. `http://localhost:8080/api`

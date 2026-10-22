@@ -56,8 +56,8 @@ Settings on the right. Opening `/` uses their default profile. A `?profile=<id>`
 link selects an assigned profile directly. Switching profiles stays within the app,
 with a fresh query cache and requests bound to the selected profile. Its settings,
 calendar and appearance are loaded before revealing the new view. The top calendar dropdown controls
-multiple calendars at once; those choices are saved with the profile and shared
-by its members.
+multiple calendars at once; those choices are saved per person within the selected
+profile, persist across devices and do not change what another member sees.
 
 ## What a profile contains
 
@@ -68,15 +68,16 @@ local Family calendar, without copying anyone's events or linked accounts.
 Server environment defaults, including any legacy Google client configuration,
 may seed fresh defaults; connected account tokens are never copied.
 
-All members can edit everything inside a shared profile. The colour theme is the
-exception: the existing **Settings → Display → Colour theme** control saves to the
-signed-in person's preferences for the selected profile, across devices.
+All members can edit everything inside a shared profile. Colour theme and calendar
+visibility are personal exceptions: the existing **Settings → Display → Colour theme**
+control saves to the signed-in person's preferences for the selected profile, across devices.
 Other members keep their own theme, and each person can choose different themes
 for different profiles. On upgrade, the previous personal theme seeds each profile;
 where no personal theme exists, that profile's old theme seeds the preference.
 Later theme changes never change shared settings or another profile's appearance.
-Personal preferences live in the access registry. Tapping Settings while it is open
-returns to the selected profile's week calendar.
+Calendar visibility starts from the previous shared selection on first use, then
+saves independently for each person and profile. Personal preferences live in the
+access registry. Tapping Settings while it is open returns to the selected profile's week calendar.
 
 The calendar toolbar shows **Sync now** only while the selected profile has a
 linked Google account. An iCloud-only or local-only profile has no toolbar sync

@@ -892,6 +892,55 @@ try {
     assert.equal(await page.locator('.profile-nav button').count(), 1)
     assert.equal(new URL(page.url()).searchParams.get('profile'), sharedId)
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'midnight')
+    const extraCalendar = await (await admin.request.post(`/api/calendars?profile=${sharedId}`, {
+      data: { name: 'Personal visibility test' },
+    })).json()
+    const start = new Date()
+    start.setHours(14, 0, 0, 0)
+    const end = new Date(start.getTime() + 3_600_000)
+    for (const [calendarId, title] of [[1, 'Shared family appointment'], [extraCalendar.id, 'Extra calendar appointment']]) {
+      const created = await admin.request.post(`/api/events?profile=${sharedId}`, {
+        data: { calendar_id: calendarId, title, start_at: start.toISOString(), end_at: end.toISOString() },
+      })
+      assert.equal(created.status(), 201)
+    }
+    await admin.request.patch(`/api/settings?profile=${sharedId}`, {
+      data: { hidden_calendar_ids: [extraCalendar.id] },
+    })
+    await page.reload()
+    const familyEvent = page.locator('.event-block').filter({ hasText: 'Shared family appointment' })
+    const extraEvent = page.locator('.event-block').filter({ hasText: 'Extra calendar appointment' })
+    await familyEvent.waitFor()
+    await extraEvent.waitFor()
+    await page.getByRole('button', { name: 'Choose calendars', exact: true }).click()
+    await page.getByRole('group', { name: 'Visible calendars', exact: true })
+      .getByRole('checkbox', { name: 'Family', exact: true }).uncheck()
+    await familyEvent.waitFor({ state: 'hidden' })
+    await extraEvent.waitFor()
+    assert.deepEqual((await (await admin.request.get(`/api/settings?profile=${sharedId}`)).json()).hidden_calendar_ids, [extraCalendar.id])
+    const otherDevice = await browser.newContext({ baseURL, viewport: { width: 1280, height: 720 }, serviceWorkers: 'block',
+      extraHTTPHeaders: { 'X-Mantel-Identity': partnerIdentity, 'X-Mantel-Proxy-Secret': 'local-preview-identity-testing-only' } })
+    try {
+      const otherPage = await otherDevice.newPage()
+      otherPage.on('pageerror', (e) => errors.push(e.message))
+      await otherPage.goto(`/calendar/week?profile=${sharedId}`)
+      await otherPage.locator('.timegrid').waitFor()
+      assert.equal(await otherPage.locator('.event-block').filter({ hasText: 'Shared family appointment' }).count(), 0)
+      await otherPage.locator('.event-block').filter({ hasText: 'Extra calendar appointment' }).waitFor()
+      await otherPage.getByRole('button', { name: 'Choose calendars', exact: true }).click()
+      const choices = otherPage.getByRole('group', { name: 'Visible calendars', exact: true })
+      assert.equal(await choices.getByRole('checkbox', { name: 'Family', exact: true }).isChecked(), false)
+      assert.equal(await choices.getByRole('checkbox', { name: 'Personal visibility test', exact: true }).isChecked(), true)
+      await choices.getByRole('button', { name: 'Show all', exact: true }).click()
+      await otherPage.locator('.event-block').filter({ hasText: 'Shared family appointment' }).waitFor()
+    } finally {
+      await otherDevice.close()
+    }
+    await page.reload()
+    await familyEvent.waitFor()
+    await extraEvent.waitFor()
+    assert.deepEqual((await (await admin.request.get(`/api/settings?profile=${sharedId}`)).json()).hidden_calendar_ids, [extraCalendar.id])
+    await admin.request.patch(`/api/settings?profile=${sharedId}`, { data: { hidden_calendar_ids: [] } })
     await page.getByRole('link', { name: 'Settings', exact: true }).click()
     assert.equal(await page.getByRole('button', { name: 'Profiles', exact: true }).count(), 0)
     assert.equal((await partner.request.get(`/api/settings?profile=${personalId}`)).status(), 403)
@@ -940,7 +989,7 @@ try {
     await partner?.close()
     await admin.close()
   }
-  console.log('PASS: administrator creates profiles and memberships; two people get independent defaults and themes per person/profile, Settings toggle, shared settings, person removal and enforced access')
+  console.log('PASS: administrator creates profiles and memberships; two people get independent defaults and themes per person/profile, personal calendar visibility across devices, Settings toggle, shared settings, person removal and enforced access')
 
   assert.deepEqual(errors, [], 'browser JavaScript errors')
 } finally {

@@ -17,7 +17,7 @@ cannot reconcile.
 
 import logging
 
-from sqlalchemy import inspect, text
+from sqlalchemy import MetaData, inspect, text
 from sqlalchemy.engine import Engine
 
 from .models import Base
@@ -30,14 +30,15 @@ class SchemaUpgradeError(RuntimeError):
 
 
 
-def sync(engine: Engine) -> list[str]:
+def sync(engine: Engine, metadata: MetaData | None = None) -> list[str]:
     """Create missing tables, then add missing columns. Returns what changed."""
-    Base.metadata.create_all(bind=engine)
+    metadata = Base.metadata if metadata is None else metadata
+    metadata.create_all(bind=engine)
 
     inspector = inspect(engine)
     applied: list[str] = []
 
-    for table in Base.metadata.sorted_tables:
+    for table in metadata.sorted_tables:
         if table.name not in inspector.get_table_names():
             continue
         existing = {c["name"] for c in inspector.get_columns(table.name)}
@@ -78,14 +79,14 @@ def sync(engine: Engine) -> list[str]:
 
     # create_all only builds indexes alongside a brand-new table, so an index on a
     # column we just added would otherwise never exist.
-    applied.extend(_sync_indexes(engine))
+    applied.extend(_sync_indexes(engine, metadata))
     return applied
 
 
-def _sync_indexes(engine: Engine) -> list[str]:
+def _sync_indexes(engine: Engine, metadata: MetaData) -> list[str]:
     inspector = inspect(engine)
     created: list[str] = []
-    for table in Base.metadata.sorted_tables:
+    for table in metadata.sorted_tables:
         if table.name not in inspector.get_table_names():
             continue
         existing = {ix["name"] for ix in inspector.get_indexes(table.name)}

@@ -3,7 +3,7 @@
 import uuid
 from pathlib import Path
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, create_engine, event, select
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, create_engine, event, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import get_settings
@@ -45,6 +45,9 @@ class ProfilePreference(RegistryBase):
     identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
     profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id"), primary_key=True)
     theme: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    hidden_calendar_ids: Mapped[list[int] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
 
 
 class Membership(RegistryBase):
@@ -91,7 +94,9 @@ def initialise_profile(profile: Profile) -> None:
 
 
 def bootstrap_registry() -> None:
-    RegistryBase.metadata.create_all(registry_engine)
+    from .schema_sync import sync
+
+    sync(registry_engine, RegistryBase.metadata)
     settings = get_settings()
     identity = settings.mantel_bootstrap_admin_identity
     if not identity and settings.mantel_auth_mode == "local":

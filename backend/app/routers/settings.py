@@ -67,12 +67,49 @@ def personal_theme(identity: str, fallback: str, theme: str | None = None) -> st
         return registry.get(ProfilePreference, key).theme or "midnight"
 
 
+def personal_calendar_visibility(
+    identity: str, fallback: list[int], selected: list[int] | None = None
+) -> list[int]:
+    """Keep visibility on the server per person/profile, including an explicit empty list."""
+    profile = current_profile.get()
+    if profile is None:
+        raise HTTPException(403, "No profile selected.")
+    key = (identity, profile.id)
+    with RegistrySession() as registry:
+        person = registry.get(Principal, identity)
+        if person is None or not person.enabled or not registry.get(Membership, key):
+            raise HTTPException(403, "No Mantel access has been assigned to this identity.")
+        preference = registry.get(ProfilePreference, key)
+        if (
+            selected is None
+            and preference is not None
+            and preference.hidden_calendar_ids is not None
+        ):
+            return preference.hidden_calendar_ids
+        # The old shared choice seeds each person once. A concurrent first read must
+        # not overwrite a selection just saved on another device.
+        value = selected if selected is not None else fallback
+        statement = insert(ProfilePreference).values(
+            identity=identity, profile_id=profile.id, hidden_calendar_ids=value
+        )
+        registry.execute(
+            statement.on_conflict_do_update(
+                index_elements=["identity", "profile_id"],
+                set_={"hidden_calendar_ids": value},
+                where=ProfilePreference.hidden_calendar_ids.is_(None) if selected is None else None,
+            )
+        )
+        registry.commit()
+        registry.expire_all()
+        return registry.get(ProfilePreference, key).hidden_calendar_ids
+
+
 @router.get(
     "",
     summary="Get app settings",
     description=(
-        "Profile preferences, with the signed-in person's own theme for this profile. Also reports "
-        "read-only server facts under `server`, such as whether Google sync is configured."
+        "Profile settings, with personal theme and calendar visibility for this profile. "
+        "Also reports read-only server facts under `server`, such as Google sync configuration."
     ),
 )
 def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
@@ -82,6 +119,9 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
 
     values = {**DEFAULT_SETTINGS, **stored}
     values["theme"] = personal_theme(request.state.principal.identity, values["theme"])
+    values["hidden_calendar_ids"] = personal_calendar_visibility(
+        request.state.principal.identity, values["hidden_calendar_ids"]
+    )
     # Secrets are write-only over the API. Reporting whether one is set is enough
     # for the settings screen to render, and means a stored client secret and a
     # Home Assistant token can never be read back out of a settings response.
@@ -109,7 +149,8 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
         'Send only the keys you want to change, e.g. `{"display_scale": "wall"}`. Unknown '
         "keys are rejected so a typo cannot silently do nothing. `theme` must be one of "
         "`midnight` (default), `daylight` or `hearth`; it applies only to the signed-in "
-        "person in the selected profile."
+        "person in the selected profile. `hidden_calendar_ids` is also personal "
+        "within that profile."
     ),
 )
 def update_app_settings(payload: dict, request: Request, db: Session = Depends(get_db)) -> dict:
@@ -128,6 +169,11 @@ def update_app_settings(payload: dict, request: Request, db: Session = Depends(g
 
     if "theme" in payload:
         personal_theme(request.state.principal.identity, "midnight", payload.pop("theme"))
+
+    if "hidden_calendar_ids" in payload:
+        personal_calendar_visibility(
+            request.state.principal.identity, [], payload.pop("hidden_calendar_ids")
+        )
 
     # Encrypted at rest with the same key as the OAuth tokens. An empty string
     # means "leave it alone", so the settings form can post the whole object

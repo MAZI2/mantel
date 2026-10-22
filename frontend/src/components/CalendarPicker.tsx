@@ -45,7 +45,7 @@ export function CalendarPicker() {
       {open && (
         <div id={id} className="calendar-picker__menu" role="group" aria-label="Visible calendars">
           <h2>Visible calendars</h2>
-          <p className="hint">Choose calendars to show in this profile.</p>
+          <p className="hint">Choose calendars to show for you in this profile.</p>
           {calendars.map((calendar) => (
             <label className="calendar-picker__choice" key={calendar.id}>
               <input type="checkbox" checked={!hidden.includes(calendar.id)} disabled={save.isPending}

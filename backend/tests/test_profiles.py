@@ -377,7 +377,8 @@ def test_themes_are_per_person_and_profile_while_other_settings_stay_shared(clie
     assert result.status_code == 200
     own = client.get("/api/settings", headers=admin).json()
     assert own["theme"] == "hearth"
-    assert own["day_start_hour"] == 9 and own["hidden_calendar_ids"] == [1]
+    assert own["day_start_hour"] == 9 and own["hidden_calendar_ids"] == []
+    assert client.get("/api/settings", headers=partner).json()["hidden_calendar_ids"] == [1]
     assert client.get("/api/settings").json()["theme"] == "daylight"
     client.put(
         "/api/admin/people/partner",
