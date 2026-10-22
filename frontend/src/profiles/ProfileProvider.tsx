@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { selectProfile } from '../api/client'
+import { restorePersonalTheme } from '../theme'
 import { ProfilesTab } from '../views/settings/ProfilesTab'
 
 export interface ProfileInfo {
@@ -52,6 +53,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           throw new Error('This profile is not available to your identity. Open the home page to use your default profile.')
         }
         selectProfile(info.identity, id)
+        restorePersonalTheme()
         setSession(info)
         setReady(true)
       } catch (e) {

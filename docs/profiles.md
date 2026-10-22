@@ -61,14 +61,24 @@ by its members.
 ## What a profile contains
 
 Each profile has separate events, calendar owners (the Family settings tab),
-calendars, Google/iCloud connections, OAuth configuration, themes, screensaver
+calendars, Google/iCloud connections, OAuth configuration, screensaver
 photos, weather and other settings. New profiles start with fresh defaults and a
 local Family calendar, without copying anyone's events or linked accounts.
 Server environment defaults, including any legacy Google client configuration,
 may seed fresh defaults; connected account tokens are never copied.
 
-All members can edit everything inside a shared profile. Administrator status
-allows managing access but does not bypass profile membership. Google linking
+All members can edit everything inside a shared profile. The colour theme is the
+exception: the existing **Settings → Display → Colour theme** control saves to the
+signed-in person's preferences and follows that person across profiles and devices.
+Other members keep their own theme. On first use after upgrading, the person's
+previous default-profile theme seeds this preference; later theme changes never
+change the shared profile settings. Personal preferences live in the access registry.
+
+The calendar toolbar shows **Sync now** only while the selected profile has a
+linked Google account. An iCloud-only or local-only profile has no toolbar sync
+button; manual sync remains available in Settings.
+
+Administrator status allows managing access but does not bypass profile membership. Google linking
 records both the initiating person and profile in signed state; its callback
 returns to that profile even if another tab has changed profiles. Configure the
 same callback URL in Google as before:
@@ -76,8 +86,10 @@ same callback URL in Google as before:
 
 Archiving a profile removes it from everyone's available profiles and pauses its
 background sync while retaining data. Restoring makes its memberships available
-again. Removing a membership or disabling a person blocks subsequent API calls;
-open screens recheck access on focus and every 30 seconds. Mantel prevents
+again. **Remove person** in Settings → Profiles deletes that person's memberships,
+personal preferences and access, while retaining all profile events, connections
+and settings. Removing a membership, disabling a person or removing them blocks
+subsequent API calls; open screens recheck access on focus and every 30 seconds. Mantel prevents
 removing or disabling the last enabled administrator.
 
 ## Storage and backups
@@ -85,7 +97,7 @@ removing or disabling the last enabled administrator.
 The default volume contains:
 
 - `/data/family.db` and `/data/photos/`: existing personal profile, unchanged.
-- `/data/profile-registry.db`: people, roles, profile names and memberships.
+- `/data/profile-registry.db`: people, roles, profile names, memberships and personal preferences.
 - `/data/profiles/<profile-id>/family.db` and `photos/`: each new profile's data.
 
 The registry and new profile directories live alongside `DATABASE_URL`, or under
@@ -120,6 +132,8 @@ Administrator endpoints:
 - `PATCH /api/admin/profiles/<id>`: name, nonnegative position or active status.
 - `PUT /api/admin/people/<identity>`: identity, name, enabled, is_admin,
   profile_ids and default_profile_id. The identity cannot be renamed.
+- `DELETE /api/admin/people/<identity>`: remove the person and their access, retaining
+  profile data. The last enabled administrator cannot be removed.
 
 The browser sends only the selected profile ID. The certificate proxy supplies
 the verified identity and secret, including on these administration requests.

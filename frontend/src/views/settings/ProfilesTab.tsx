@@ -30,7 +30,7 @@ export function ProfilesTab() {
     else changed()
   }
   const create = useMutation({
-    mutationFn: () => api.post('/admin/profiles', { name: name.trim(), members }),
+    mutationFn: () => api.post('/admin/profiles', { name: name.trim(), members: members.filter((id) => data?.people.some((p) => p.identity === id && p.enabled)) }),
     onSuccess: async () => { setName(''); await refresh() },
   })
   const update = useMutation({
@@ -103,6 +103,11 @@ function PersonEditor({ person, profiles, onSaved }: {
     mutationFn: () => api.put(`/admin/people/${encodeURIComponent(value.identity.trim())}`, { ...value, identity: value.identity.trim() }),
     onSuccess: async () => { setSaved(true); await onSaved() },
   })
+  const removal = useMutation({
+    mutationFn: () => api.del(`/admin/people/${encodeURIComponent(person!.identity)}`),
+    onSuccess: onSaved,
+  })
+  const pending = mutation.isPending || removal.isPending
   const label = person?.name || 'new person'
   const toggle = (id: string) => setValue((current) => {
     const ids = current.profile_ids.includes(id) ? current.profile_ids.filter((p) => p !== id) : [...current.profile_ids, id]
@@ -111,7 +116,7 @@ function PersonEditor({ person, profiles, onSaved }: {
   return (
     <form className="access-card" aria-label={`Access for ${label}`} onSubmit={(e) => { e.preventDefault(); mutation.mutate() }}>
       <h4>{person ? person.name : 'Add person'}</h4>
-      <fieldset disabled={mutation.isPending}>
+      <fieldset disabled={pending}>
         <label className="field">Stable person identifier
           <input aria-label={`Identifier for ${label}`} value={value.identity} disabled={!!person} required maxLength={255}
             onChange={(e) => setValue({ ...value, identity: e.target.value })} />
@@ -135,9 +140,13 @@ function PersonEditor({ person, profiles, onSaved }: {
           </select>
         </label>
       </fieldset>
-      {mutation.error && <p className="modal__error" role="alert">{mutation.error.message}</p>}
+      {(mutation.error || removal.error) && <p className="modal__error" role="alert">{(removal.error || mutation.error)?.message}</p>}
       {saved && <p role="status">Access saved.</p>}
-      <button className="btn btn--primary" disabled={mutation.isPending}>{person ? 'Save access' : 'Add person'}</button>
+      <div className="row">
+        <button className="btn btn--primary" disabled={pending}>{person ? 'Save access' : 'Add person'}</button>
+        {person && <button type="button" className="btn btn--danger" disabled={pending}
+          onClick={() => removal.mutate()}>Remove person</button>}
+      </div>
     </form>
   )
 }

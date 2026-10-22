@@ -32,7 +32,8 @@ The calendar toolbar's **Choose calendars** dropdown controls multiple calendars
 at once, replacing the add-event button. Visibility is saved with the profile and
 shared with its members. Tap an empty calendar slot to add an event.
 
-The calendar toolbar's **Sync now** button runs the same Google/iCloud sync as
+When the selected profile has a linked Google account, the calendar toolbar's
+**Sync now** button runs the same Google/iCloud sync as
 Settings and refreshes the visible events immediately. It shows progress and any
 reported sync errors without leaving the calendar.
 
@@ -60,7 +61,7 @@ The separate Compose project binds only to localhost. It uses a fresh named data
 volume, ignores the production `.env`, and disables calendar sync and release checks.
 Browser tests mock calendar data and settings, with a disposable local calendar for
 event-saving checks that is removed afterwards. Profile tests also create a disposable
-shared profile and person, then archive/disable them. They do not modify your preview events.
+shared profile and person, then archive the profile and remove the person. They do not modify your preview events.
 Tests use Europe/Ljubljana time and cover overnight week rollover, including DST.
 No host `node_modules`, Python virtualenv or browser profiles are created.
 
@@ -69,3 +70,8 @@ checks, commit the agreed changes, then run `./local.sh clean`. This removes onl
 `mantel-local-preview` project, its images and its dedicated Buildx builder/cache; it
 does not prune Docker globally or touch other projects. These scripts stay in the repo
 for the next round. The Raspberry Pi deployment commands stay the same.
+
+The Display tab's colour theme is personal to the signed-in person and follows
+them across profiles; all other settings remain shared within each profile.
+Administrators can remove people in Settings → Profiles without deleting any
+profile events, connections or settings.

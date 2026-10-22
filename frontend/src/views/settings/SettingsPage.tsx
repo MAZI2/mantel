@@ -344,7 +344,7 @@ function DisplayTab() {
   return (
     <section className="panel">
       <h2>Display</h2>
-      <p className="hint">These settings are shared by everyone using this profile.</p>
+      <p className="hint">These settings are shared by everyone using this profile, except your colour theme.</p>
 
       <div className="row">
         <div className="row__name row__name--static">Text size</div>

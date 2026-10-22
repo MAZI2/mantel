@@ -359,3 +359,103 @@ def test_concurrent_requests_keep_their_own_profile_context(client):
         assert list(pool.map(read, requests)) == [
             9 if shared_request else 5 for shared_request in requests
         ]
+
+
+def test_theme_follows_the_person_across_profiles_while_other_settings_stay_shared(client):
+    personal, shared = setup_shared(client)
+    partner = headers(profile=shared)
+    admin = headers("local-admin", shared)
+    assert client.patch("/api/settings", json={"theme": "daylight"}).status_code == 200
+    assert client.get("/api/settings", headers=partner).json()["theme"] == "midnight"
+    assert client.get("/api/settings", headers=admin).json()["theme"] == "daylight"
+    result = client.patch(
+        "/api/settings",
+        headers=partner,
+        json={
+            "theme": "hearth",
+            "day_start_hour": 9,
+            "hidden_calendar_ids": [1],
+        },
+    )
+    assert result.status_code == 200
+    own = client.get("/api/settings", headers=admin).json()
+    assert own["theme"] == "daylight"
+    assert own["day_start_hour"] == 9 and own["hidden_calendar_ids"] == [1]
+    assert client.get("/api/settings", headers=partner).json()["theme"] == "hearth"
+    # Assigning another profile does not reset or change the person's preference.
+    client.put(
+        "/api/admin/people/partner",
+        json={
+            "identity": "partner",
+            "name": "Partner",
+            "profile_ids": [personal, shared],
+            "default_profile_id": shared,
+        },
+    )
+    assert (
+        client.get("/api/settings", headers=headers(profile=personal)).json()["theme"] == "hearth"
+    )
+    assert client.patch("/api/settings", headers=partner, json={"theme": "neon"}).status_code == 400
+    assert client.get("/api/settings", headers=partner).json()["theme"] == "hearth"
+
+
+def test_previous_default_profile_theme_seeds_personal_preference_once(client, db):
+    from app.models import AppSetting
+    from app.profiles import PersonalPreference, RegistrySession
+
+    personal, shared = setup_shared(client)
+    db.get(AppSetting, "theme").value = {"value": "hearth"}
+    db.commit()
+    # The first request may be a shared-profile bookmark on another device.
+    assert (
+        client.get("/api/settings", headers=headers("local-admin", shared)).json()["theme"]
+        == "hearth"
+    )
+    db.get(AppSetting, "theme").value = {"value": "daylight"}
+    db.commit()
+    assert client.get("/api/settings").json()["theme"] == "hearth"
+    with RegistrySession() as registry:
+        assert registry.get(PersonalPreference, "local-admin").theme == "hearth"
+    assert (
+        client.get("/api/settings", headers=headers("local-admin", personal)).json()["theme"]
+        == "hearth"
+    )
+
+
+def test_remove_person_revokes_access_and_removes_preferences_but_keeps_profile_data(client):
+    from app.profiles import Membership, PersonalPreference, Principal, RegistrySession
+
+    _, shared = setup_shared(client)
+    event(client, "Keep shared event", shared, "partner")
+    client.patch("/api/settings", headers=headers(profile=shared), json={"theme": "hearth"})
+    assert client.delete("/api/admin/people/local-admin", headers=headers()).status_code == 403
+    assert client.delete("/api/admin/people/partner").status_code == 204
+    assert client.get("/api/session", headers=headers()).status_code == 403
+    assert client.get("/api/settings", headers=headers(profile=shared)).status_code == 403
+    assert (
+        client.get("/api/events/1", headers=headers("local-admin", shared)).json()["title"]
+        == "Keep shared event"
+    )
+    with RegistrySession() as registry:
+        assert registry.get(Principal, "partner") is None
+        assert registry.get(PersonalPreference, "partner") is None
+        assert registry.get(Membership, ("partner", shared)) is None
+    assert client.delete("/api/admin/people/partner").status_code == 404
+    assert client.delete("/api/admin/people/local-admin").status_code == 400
+
+
+def test_removing_one_administrator_still_preserves_an_enabled_administrator(client):
+    _, shared = setup_shared(client)
+    client.put(
+        "/api/admin/people/partner",
+        json={
+            "identity": "partner",
+            "name": "Partner",
+            "is_admin": True,
+            "profile_ids": [shared],
+            "default_profile_id": shared,
+        },
+    )
+    assert client.delete("/api/admin/people/local-admin").status_code == 204
+    assert client.get("/api/session").status_code == 403
+    assert client.delete("/api/admin/people/partner", headers=headers()).status_code == 400

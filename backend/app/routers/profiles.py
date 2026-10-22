@@ -6,6 +6,7 @@ from sqlalchemy import delete, func, select, text
 
 from ..profiles import (
     Membership,
+    PersonalPreference,
     Principal,
     Profile,
     RegistrySession,
@@ -157,17 +158,7 @@ def save_person(identity: str, payload: PersonWrite) -> dict:
             and person.enabled
             and not (payload.is_admin and payload.enabled)
         ):
-            others = db.scalar(
-                select(func.count())
-                .select_from(Principal)
-                .where(
-                    Principal.is_admin.is_(True),
-                    Principal.enabled.is_(True),
-                    Principal.identity != identity,
-                )
-            )
-            if not others:
-                raise HTTPException(400, "Keep at least one enabled administrator.")
+            keep_an_administrator(db, identity)
         if person is None:
             person = Principal(identity=identity)
             db.add(person)
@@ -181,3 +172,33 @@ def save_person(identity: str, payload: PersonWrite) -> dict:
             db.add(Membership(identity=identity, profile_id=profile_id))
         db.commit()
     return {"saved": True}
+
+
+def keep_an_administrator(db, identity: str) -> None:
+    others = db.scalar(
+        select(func.count())
+        .select_from(Principal)
+        .where(
+            Principal.is_admin.is_(True),
+            Principal.enabled.is_(True),
+            Principal.identity != identity,
+        )
+    )
+    if not others:
+        raise HTTPException(400, "Keep at least one enabled administrator.")
+
+
+@router.delete("/admin/people/{identity:path}", status_code=204)
+def remove_person(identity: str) -> None:
+    """Remove a person's access and preferences, retaining every profile's data."""
+    with RegistrySession() as db:
+        db.execute(text("BEGIN IMMEDIATE"))
+        person = db.get(Principal, identity)
+        if person is None:
+            raise HTTPException(404, "Person not found.")
+        if person.is_admin and person.enabled:
+            keep_an_administrator(db, identity)
+        db.execute(delete(Membership).where(Membership.identity == identity))
+        db.execute(delete(PersonalPreference).where(PersonalPreference.identity == identity))
+        db.delete(person)
+        db.commit()

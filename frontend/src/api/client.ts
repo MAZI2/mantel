@@ -30,6 +30,10 @@ export function profileStorageKey(key: string): string {
   return activeProfileId ? `${key}:${activeIdentity}:${activeProfileId}` : key
 }
 
+export function personalStorageKey(key: string): string {
+  return `${key}:${activeIdentity}`
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,

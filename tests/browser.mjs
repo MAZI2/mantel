@@ -8,7 +8,7 @@ const errors = []
 
 async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal', allDay = false,
   weekStartsOn = 1, dayStartHour = 0, dayEndHour = 24,
-  timezoneId = 'Europe/Ljubljana', fixtureEvents = null, fixtureUsers = [], fixtureCalendars = null,
+  timezoneId = 'Europe/Ljubljana', fixtureEvents = null, fixtureUsers = [], fixtureCalendars = null, fixtureAccounts = [],
   time = '2026-10-21T12:00:00+02:00', path = '/' } = {}) {
   const context = await browser.newContext({ baseURL, viewport, timezoneId,
     hasTouch: true, serviceWorkers: 'block' })
@@ -24,6 +24,7 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
     if (route.request().method() === 'PATCH') Object.assign(savedSettings, route.request().postDataJSON())
     return route.fulfill({ json: savedSettings })
   })
+  await context.route('**/api/accounts', (route) => route.fulfill({ json: fixtureAccounts }))
   await context.route('**/api/users', (route) => route.fulfill({ json: fixtureUsers }))
   if (fixtureCalendars) await context.route('**/api/calendars', (route) => route.fulfill({ json: fixtureCalendars }))
   const eventRanges = []
@@ -57,9 +58,7 @@ try {
         assert.equal(await page.locator('.timegrid__dayhead').count(), 7)
         assert.equal(await page.locator('.viewtabs, .navviews, .timestrip').count(), 0)
         assert.equal(await page.locator('.profile-nav button[aria-pressed=true]').count(), 1)
-        const syncBounds = await page.getByRole('button', { name: 'Sync now', exact: true }).boundingBox()
-        assert.ok(syncBounds.x >= 0 && syncBounds.x + syncBounds.width <= viewport.width,
-          'Sync now is outside the screen')
+        assert.equal(await page.getByRole('button', { name: 'Sync now', exact: true }).count(), 0)
         if (allDay) await page.getByRole('button', { name: 'All-day test' }).waitFor()
         const body = page.locator('.timegrid__body')
         const aligned = await page.evaluate(() => {
@@ -410,7 +409,7 @@ try {
   console.log('PASS: compact event details wrap full mobile titles, preserve all-day dates, respect read-only calendars and support editing, deletion and retry')
 
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 720 }]) {
-    const { context, page } = await open({ viewport })
+    const { context, page } = await open({ viewport, fixtureAccounts: [{ id: 1, provider: 'google', email: 'test@example.com', status: 'active' }] })
     let syncRequests = 0
     let hasSynced = false
     let finishSync
@@ -442,6 +441,8 @@ try {
       return route.fulfill({ json: { pulled: 1, pushed: 0, new_calendars: 0 } })
     })
     const button = page.getByRole('button', { name: 'Sync now', exact: true })
+    const syncBounds = await button.boundingBox()
+    assert.ok(syncBounds.x >= 0 && syncBounds.x + syncBounds.width <= viewport.width)
     await button.click()
     await started
     await page.waitForFunction(() => document.querySelector('[aria-label="Sync now"]')?.disabled)
@@ -470,6 +471,21 @@ try {
     await button.click()
     await page.waitForFunction(() => document.querySelector('[aria-label="Sync now"]')?.textContent === 'Synced')
     await page.getByRole('alert').waitFor({ state: 'hidden' })
+    await context.close()
+  }
+  for (const accounts of [
+    [],
+    [{ id: 1, provider: 'icloud', email: 'apple@example.test', status: 'active' }],
+    [{ id: 2, provider: 'google', email: 'google@example.test', status: 'needs_reauth' }],
+  ]) {
+    const { context, page } = await open({ fixtureAccounts: accounts })
+    const google = accounts.some((account) => account.provider === 'google')
+    if (google) await page.getByRole('button', { name: 'Sync now', exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Sync now', exact: true }).count(), google ? 1 : 0)
+    accounts.length = 0
+    await page.reload()
+    await page.getByRole('button', { name: 'Choose calendars', exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Sync now', exact: true }).count(), 0)
     await context.close()
   }
   console.log('PASS: toolbar sync posts once, refreshes events, reports failures and supports retry on phone and desktop')
@@ -724,34 +740,49 @@ try {
     await page.getByRole('button', { name: sharedName, exact: true }).waitFor()
     assert.equal(await page.locator('.profile-nav button').count(), 1)
     assert.equal(new URL(page.url()).searchParams.get('profile'), sharedId)
-    await page.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'midnight')
     await page.getByRole('link', { name: 'Settings', exact: true }).click()
     assert.equal(await page.getByRole('button', { name: 'Profiles', exact: true }).count(), 0)
     assert.equal((await partner.request.get(`/api/settings?profile=${personalId}`)).status(), 403)
     assert.equal((await partner.request.get('/api/admin/profiles')).status(), 403)
-    // Members can change common settings; a fresh administrator screen sees them.
-    await partner.request.patch(`/api/settings?profile=${sharedId}`, { data: { theme: 'hearth' } })
+    // Shared settings still propagate while the existing theme control saves personally.
+    await page.getByRole('button', { name: 'Display', exact: true }).click()
+    await page.getByRole('group', { name: 'Colour theme' }).getByRole('button', { name: 'Hearth', exact: true }).click()
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'hearth')
+    await page.reload()
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'hearth')
+    await partner.request.patch(`/api/settings?profile=${sharedId}`, { data: { day_start_hour: 9 } })
     await adminPage.getByRole('button', { name: sharedName, exact: true }).click()
-    await adminPage.waitForFunction(() => document.documentElement.dataset.theme === 'hearth')
+    await adminPage.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    await adminPage.waitForFunction(() => document.querySelectorAll('.timegrid__slot').length === 13 * 7)
+    // The same browser can authenticate as another person without sharing its theme cache.
+    await partner.setExtraHTTPHeaders({ 'X-Mantel-Identity': 'local-admin', 'X-Mantel-Proxy-Secret': 'local-preview-identity-testing-only' })
+    await page.goto('/')
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    assert.equal(await page.evaluate(() => localStorage.getItem('mantel.theme:local-admin')), 'daylight')
+    await partner.setExtraHTTPHeaders({ 'X-Mantel-Identity': partnerIdentity, 'X-Mantel-Proxy-Secret': 'local-preview-identity-testing-only' })
+    await page.goto('/')
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'hearth')
+    assert.equal(await page.evaluate((id) => localStorage.getItem(`mantel.theme:${id}`), partnerIdentity), 'hearth')
     await page.goto(`/?profile=${personalId}`)
     await page.getByRole('alert').filter({ hasText: 'not available' }).waitFor()
     await page.goto('/')
     await page.waitForURL(`**/calendar/week?profile=${sharedId}`)
     await page.getByRole('button', { name: sharedName, exact: true }).waitFor()
-    await admin.request.put(`/api/admin/people/${partnerIdentity}`, { data: {
-      identity: partnerIdentity, name: partnerName, enabled: false, profile_ids: [sharedId], default_profile_id: sharedId,
-    } })
+    await adminPage.getByRole('link', { name: 'Settings', exact: true }).click()
+    await adminPage.getByRole('button', { name: 'Profiles', exact: true }).click()
+    const partnerForm = adminPage.getByRole('form', { name: `Access for ${partnerName}`, exact: true })
+    await partnerForm.getByRole('button', { name: 'Remove person', exact: true }).click()
+    await partnerForm.waitFor({ state: 'hidden' })
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await page.getByRole('alert').filter({ hasText: 'No Mantel access' }).waitFor()
   } finally {
-    if (partner && sharedId) await admin.request.put(`/api/admin/people/${partnerIdentity}`, { data: {
-      identity: partnerIdentity, name: partnerName, enabled: false, profile_ids: [sharedId], default_profile_id: sharedId,
-    } })
+    if (sharedId) await admin.request.delete(`/api/admin/people/${partnerIdentity}`)
     if (sharedId) await admin.request.patch(`/api/admin/profiles/${sharedId}`, { data: { active: false } })
     await partner?.close()
     await admin.close()
   }
-  console.log('PASS: administrator creates profiles and memberships; two people get independent defaults, shared settings and enforced access')
+  console.log('PASS: administrator creates profiles and memberships; two people get independent defaults and personal themes, shared settings, person removal and enforced access')
 
   assert.deepEqual(errors, [], 'browser JavaScript errors')
 } finally {

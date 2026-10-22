@@ -1,3 +1,5 @@
+import { personalStorageKey } from './api/client'
+
 import type { AppSettings } from './api/types'
 
 export type ThemeId = AppSettings['theme']
@@ -97,7 +99,7 @@ export function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
-// Read by the inline script in index.html as well; keep the key in step with it.
+// Restore only after the server has identified the signed-in person.
 const STORAGE_KEY = 'mantel.theme'
 
 /** Points the whole app at a theme. Also remembers it on this device so the next load
@@ -106,7 +108,7 @@ const STORAGE_KEY = 'mantel.theme'
 export function applyTheme(id: ThemeId): void {
   document.documentElement.dataset.theme = id
   try {
-    localStorage.setItem(STORAGE_KEY, id)
+    localStorage.setItem(personalStorageKey(STORAGE_KEY), id)
   } catch {
     // Private windows and blocked site data throw; the theme still applies, it just
     // will not be remembered for the first paint.
@@ -114,4 +116,13 @@ export function applyTheme(id: ThemeId): void {
   const t = THEMES.find((x) => x.id === id)
   // The browser chrome and the installed-app title bar take their colour from here.
   if (t) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t.palette.bg)
+}
+
+export function restorePersonalTheme(): void {
+  try {
+    const theme = localStorage.getItem(personalStorageKey(STORAGE_KEY))
+    if (isThemeId(theme)) applyTheme(theme)
+  } catch {
+    // The server remains authoritative when local storage is unavailable.
+  }
 }

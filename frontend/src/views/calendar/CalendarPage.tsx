@@ -1,6 +1,6 @@
 import { addDays, format, isSameMonth, startOfWeek } from 'date-fns'
 import { useEffect, useState } from 'react'
-import { useEvents, useSettings, useSyncNow } from '../../api/hooks'
+import { useAccounts, useEvents, useSettings, useSyncNow } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
 import { EventDialog } from '../../components/EventDialog'
 import { CalendarPicker } from '../../components/CalendarPicker'
@@ -11,6 +11,8 @@ const SCALE_FACTOR: Record<string, number> = { normal: 1, large: 1.2, wall: 1.45
 
 export function CalendarPage() {
   const { data: settings } = useSettings()
+  const { data: accounts = [] } = useAccounts()
+  const hasGoogle = accounts.some((account) => account.provider === 'google')
   const sync = useSyncNow()
   const { isSuccess: synced, reset: resetSync } = sync
   const [anchor, setAnchor] = useState(() => new Date())
@@ -74,7 +76,7 @@ export function CalendarPage() {
           <h1 className="calpage__title">{titleFor(range.start, range.end)}</h1>
           {isLoading && <span className="calpage__loading">…</span>}
         </div>
-        <button
+        {hasGoogle && <button
           className="iconbtn calpage__syncbtn"
           onClick={() => sync.mutate()}
           disabled={sync.isPending}
@@ -82,7 +84,7 @@ export function CalendarPage() {
           aria-busy={sync.isPending}
         >
           <span aria-live="polite">{sync.isPending ? 'Syncing…' : synced ? 'Synced' : 'Sync now'}</span>
-        </button>
+        </button>}
         <button className="iconbtn" onClick={goToday}>
           Today
         </button>
@@ -99,7 +101,7 @@ export function CalendarPage() {
         <CalendarPicker />
       </header>
 
-      {sync.isError && (
+      {hasGoogle && sync.isError && (
         <div className="calpage__syncerror" role="alert">
           <span>{sync.error.message || 'Could not sync. Please try again.'}</span>
           <button onClick={resetSync} aria-label="Dismiss sync error">×</button>

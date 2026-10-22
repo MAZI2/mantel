@@ -5,6 +5,7 @@ import type {
   CalendarEvent,
   CalendarInfo,
   EventInput,
+  LinkedAccount,
   SyncStatus,
   User,
   Weather,
@@ -16,6 +17,10 @@ export function useUsers() {
 
 export function useCalendars() {
   return useQuery({ queryKey: ['calendars'], queryFn: () => api.get<CalendarInfo[]>('/calendars') })
+}
+
+export function useAccounts() {
+  return useQuery({ queryKey: ['accounts'], queryFn: () => api.get<LinkedAccount[]>('/accounts') })
 }
 
 export function useSettings() {

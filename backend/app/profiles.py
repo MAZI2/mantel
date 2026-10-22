@@ -33,6 +33,12 @@ class Principal(RegistryBase):
     default_profile_id: Mapped[str | None] = mapped_column(ForeignKey("profiles.id"))
 
 
+class PersonalPreference(RegistryBase):
+    __tablename__ = "personal_preferences"
+    identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
+    theme: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
 class Membership(RegistryBase):
     __tablename__ = "memberships"
     identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
