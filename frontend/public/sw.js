@@ -19,25 +19,6 @@
 // origin -- taking the offline copy with it.
 const VERSION = new URL(self.location.href).searchParams.get('v') || 'dev'
 const SHELL_CACHE = `famcal-shell-${VERSION}`
-const DATA_CACHE = `famcal-data-${VERSION}`
-
-// Every GET a screen needs to render itself from cache; anything not listed
-// falls through to the network untouched. The dashboard is the
-// recommended kiosk route, so its widget layout belongs here just as much as the
-// calendar's events -- without it a network drop leaves the wall showing the
-// empty-dashboard placeholder.
-const CACHEABLE_API = [
-  '/api/events',
-  '/api/users',
-  '/api/calendars',
-  '/api/settings',
-  '/api/photos',
-  '/api/dashboard/widgets',
-  '/api/dashboard/widget-types',
-  '/api/lists',
-  '/api/weather',
-]
-
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(['/'])))
   self.skipWaiting()
@@ -45,15 +26,19 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys
-            .filter((k) => k.startsWith('famcal-') && !k.endsWith(`-${VERSION}`))
-            .map((k) => caches.delete(k)),
-        ),
-      )
+    caches.keys().then(async (keys) => {
+      for (const key of keys.filter((k) => k.startsWith('famcal-'))) {
+        if (key !== SHELL_CACHE) {
+          await caches.delete(key)
+          continue
+        }
+        // Earlier releases stored private photos alongside public assets.
+        const cache = await caches.open(key)
+        for (const request of await cache.keys()) {
+          if (new URL(request.url).pathname.startsWith('/api/')) await cache.delete(request)
+        }
+      }
+    })
       .then(() => self.clients.claim()),
   )
 })
@@ -65,17 +50,12 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
 
-  // Never cache the version probe -- see the note at the top of this file.
-  if (url.pathname === '/api/version') return
+  // Profiles and certificate identities can change on the same browser. Private
+  // responses must always be authorized afresh, including photo downloads.
+  if (url.pathname.startsWith('/api/')) return
 
-  // Hashed build assets and uploaded photos never change under a given URL.
-  if (url.pathname.startsWith('/assets/') || /^\/api\/photos\/\d+\/file$/.test(url.pathname)) {
+  if (url.pathname.startsWith('/assets/')) {
     event.respondWith(cacheFirst(request, SHELL_CACHE))
-    return
-  }
-
-  if (CACHEABLE_API.some((p) => url.pathname === p || url.pathname.startsWith(`${p}?`))) {
-    event.respondWith(networkFirst(request, DATA_CACHE))
     return
   }
 

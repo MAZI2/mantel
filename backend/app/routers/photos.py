@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import Photo
+from ..profile_context import current_profile
 from ..services import photos as photo_service
 
 router = APIRouter(prefix="/photos", tags=["photos"])
@@ -30,7 +31,7 @@ def _out(photo: Photo) -> PhotoOut:
         height=photo.height,
         size_bytes=photo.size_bytes,
         sort_order=photo.sort_order,
-        url=f"/api/photos/{photo.id}/file",
+        url=f"/api/photos/{photo.id}/file?profile={current_profile.get().id}",
     )
 
 
@@ -90,13 +91,9 @@ def get_photo_file(photo_id: int, db: Session = Depends(get_db)) -> FileResponse
         path = photo_service.path_for(photo.filename)
     except photo_service.PhotoError as exc:
         raise HTTPException(404, "Photo not found") from exc
-    # Immutable: the filename is content-addressed by a random token and a photo's
-    # bytes never change, so the screensaver can cache aggressively.
-    return FileResponse(
-        path,
-        media_type=photo.content_type,
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
-    )
+    # IDs can overlap across profiles, so every download requires fresh access.
+    return FileResponse(path, media_type=photo.content_type)
+
 
 
 @router.delete("/{photo_id}", status_code=204, summary="Delete a photo")

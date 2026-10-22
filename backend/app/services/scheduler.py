@@ -4,6 +4,8 @@ import logging
 
 from ..config import get_settings
 from ..db import SessionLocal
+from ..profile_context import profile_context
+from ..profiles import active_scopes
 from . import sync_engine, update_check
 from .pullsignal import register_pull_signal
 from .pushqueue import register_push_signal
@@ -68,13 +70,23 @@ def _update_check_once() -> None:
 
 
 def _pull_once() -> int:
-    with SessionLocal() as db:
-        return sync_engine.pull_all(db)
+    return _each_profile(sync_engine.pull_all)
 
 
 def _push_once() -> int:
-    with SessionLocal() as db:
-        return sync_engine.push_pending(db)
+    return _each_profile(sync_engine.push_pending)
+
+
+def _each_profile(action) -> int:
+    total = 0
+    for profile in active_scopes():
+        try:
+            with profile_context(profile), SessionLocal() as db:
+                total += action(db)
+        except Exception:
+            # A broken connection in one profile must not stop everyone else's sync.
+            log.exception("Scheduled work failed for profile %s", profile.id)
+    return total
 
 
 def start(loop: asyncio.AbstractEventLoop) -> list[asyncio.Task]:

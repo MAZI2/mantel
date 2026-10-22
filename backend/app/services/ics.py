@@ -16,6 +16,7 @@ a file this size.
 from datetime import datetime, timedelta
 
 from ..models import Event
+from ..profile_context import current_profile
 from ..timeutil import utcnow_naive
 
 PRODID = "-//Family Calendar//EN"
@@ -70,7 +71,9 @@ def _date(dt: datetime) -> str:
 
 def _uid(event: Event) -> str:
     # Stable across exports so subscribers update an event rather than duplicating it.
-    return f"famcal-{event.id}@family-calendar"
+    profile = current_profile.get()
+    prefix = f"{profile.id}-" if profile and not profile.legacy else ""
+    return f"famcal-{prefix}{event.id}@family-calendar"
 
 
 def event_lines(event: Event) -> list[str]:

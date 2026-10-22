@@ -1,23 +1,41 @@
 import { useEffect } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useSettings } from './api/hooks'
 import { bookmarkLabel, safeBookmarkUrl } from './components/bookmark'
 import { Screensaver } from './components/Screensaver'
-import { VersionBadge } from './components/VersionBadge'
+import { useVersionPoll } from './hooks/useVersionPoll'
+import { profileHref } from './api/client'
+import { useSession } from './profiles/ProfileProvider'
 import { useBurnInShift } from './hooks/useIdle'
 import { useOnline } from './hooks/useOnline'
 import { useViewportFit } from './hooks/useViewportFit'
 import { applyTheme, isThemeId } from './theme'
 
-const NAV = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/lists', label: 'Lists' },
-  { to: '/settings', label: 'Settings' },
-]
-
 export function App() {
+  const session = useSession()
+  const navigate = useNavigate()
+  const activeId = new URLSearchParams(useLocation().search).get('profile') || session.default_profile_id
+  useVersionPoll()
   const { data: settings } = useSettings()
   const onCalendar = useLocation().pathname.startsWith('/calendar')
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const response = await fetch('/api/session', { cache: 'no-store' })
+        if (!response.ok) { window.location.reload(); return }
+        const next = await response.json()
+        if (next.identity !== session.identity || next.is_admin !== session.is_admin ||
+            !next.profiles.some((p: { id: string }) => p.id === activeId)) window.location.assign('/')
+        else if (JSON.stringify(next.profiles) !== JSON.stringify(session.profiles)) window.location.reload()
+      } catch { /* Keep the current screen while offline. */ }
+    }
+    const timer = setInterval(() => void check(), 30_000)
+    const focus = () => void check()
+    window.addEventListener('focus', focus)
+    window.addEventListener('mantel:access-changed', focus)
+    return () => { clearInterval(timer); window.removeEventListener('focus', focus); window.removeEventListener('mantel:access-changed', focus) }
+  }, [session, activeId])
 
   // Keeps the app the height of the space actually available, so a phone keyboard
   // never covers the nav or a modal's Save button.
@@ -43,7 +61,7 @@ export function App() {
 
   return (
     <div
-      className="shell"
+      className="shell shell--profiles"
       style={{ transform: `translate(${shift.x}px, ${shift.y}px)`, transition: 'transform 2s ease-in-out' }}
     >
       {bookmark && (
@@ -58,20 +76,22 @@ export function App() {
         <Outlet />
       </main>
       <nav className="shell__nav">
-        <NavLink
-          to="/calendar/week"
-          className="navbtn"
-          aria-current={onCalendar ? 'page' : undefined}
-        >
-          <span>Calendar</span>
-        </NavLink>
-
-        {NAV.map((item) => (
-          <NavLink key={item.to} to={item.to} className="navbtn">
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
-        <VersionBadge />
+        <div className="profile-nav" role="group" aria-label="Profiles">
+          {session.profiles.map((profile) => (
+            <button key={profile.id} className="navbtn" aria-pressed={profile.id === activeId}
+              aria-current={onCalendar && profile.id === activeId ? 'page' : undefined}
+              onClick={() => {
+                const target = profileHref('/calendar/week', profile.id)
+                // A fresh app instance gives each profile its own query/mutation
+                // lifecycle; a slow request cannot finish in another profile's UI.
+                if (profile.id === activeId) void navigate(target)
+                else window.location.assign(target)
+              }}>
+              {profile.name}
+            </button>
+          ))}
+        </div>
+        <NavLink to={profileHref('/settings')} className="navbtn profile-settings">Settings</NavLink>
       </nav>
       {!online && <div className="offline">Offline — showing the last known schedule</div>}
       <Screensaver />

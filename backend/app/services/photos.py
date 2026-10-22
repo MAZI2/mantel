@@ -37,8 +37,10 @@ def photo_dir() -> Path:
     """Photos live beside the database inside the data volume, so the documented
     backup covers them without a second step."""
     from ..config import get_settings
+    from ..profile_context import current_profile
 
-    url = get_settings().database_url
+    profile = current_profile.get()
+    url = profile.database_url if profile else get_settings().database_url
     if url.startswith("sqlite"):
         db_path = url.split("///", 1)[-1]
         base = Path(db_path).parent if db_path and db_path != ":memory:" else Path("/data")

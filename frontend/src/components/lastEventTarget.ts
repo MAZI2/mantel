@@ -1,4 +1,5 @@
 import type { CalendarInfo } from '../api/types'
+import { profileStorageKey } from '../api/client'
 
 const STORAGE_KEY = 'mantel.lastEventTarget'
 
@@ -39,7 +40,7 @@ export function isStillValid(target: EventTarget, choices: CalendarInfo[]): bool
 export function readLastTarget(choices: CalendarInfo[]): EventTarget | null {
   let raw: string | null = null
   try {
-    raw = window.localStorage.getItem(STORAGE_KEY)
+    raw = window.localStorage.getItem(profileStorageKey(STORAGE_KEY))
   } catch {
     return null // private mode, or storage disabled
   }
@@ -52,7 +53,7 @@ export function readLastTarget(choices: CalendarInfo[]): EventTarget | null {
  *  have them overwriting each other. */
 export function rememberLastTarget(profileId: number | null, calendarId: number): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ profileId, calendarId }))
+    window.localStorage.setItem(profileStorageKey(STORAGE_KEY), JSON.stringify({ profileId, calendarId }))
   } catch {
     // Not being able to remember is not worth failing a save over.
   }

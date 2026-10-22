@@ -31,7 +31,7 @@ DEBOUNCE_SECONDS = 1.0
 _worker: threading.Thread | None = None
 _wake = threading.Event()
 _lock = threading.Lock()
-_pending: tuple[str, str, str] | None = None
+_pending: set[tuple[str, str, str]] = set()
 
 
 def notify(base_url: str, token: str, entity_id: str) -> None:
@@ -68,7 +68,7 @@ def notify_async(base_url: str, token: str, entity_id: str) -> None:
         return
 
     with _lock:
-        globals()["_pending"] = (base_url, token, entity_id)
+        _pending.add((base_url, token, entity_id))
         if _worker is None or not _worker.is_alive():
             _worker = threading.Thread(target=_run, name="ha-notify", daemon=True)
             _worker.start()
@@ -82,7 +82,7 @@ def _run() -> None:
         # worker exit so a long-running server isn't holding a thread for nothing.
         if not _wake.wait(timeout=300):
             with _lock:
-                if _pending is None:
+                if not _pending:
                     return
         _wake.clear()
 
@@ -90,9 +90,9 @@ def _run() -> None:
         threading.Event().wait(DEBOUNCE_SECONDS)
 
         with _lock:
-            target = _pending
-            globals()["_pending"] = None
-        if target is not None:
+            targets = list(_pending)
+            _pending.clear()
+        for target in targets:
             notify(*target)
 
 

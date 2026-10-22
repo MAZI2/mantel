@@ -20,9 +20,8 @@ export function ApiTab() {
     <section className="panel">
       <h2>API</h2>
       <p className="hint">
-        Everything this app can do is available over HTTP, with no authentication — it is meant
-        for a trusted home network. Point another tool, a script, or an AI agent at the guide
-        below.
+        API requests use your certificate identity and require access to the selected profile.
+        The guide below describes the available operations.
       </p>
 
       <div className="row">

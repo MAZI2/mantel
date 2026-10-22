@@ -23,9 +23,14 @@ port if needed (use the same value for subsequent commands).
 grid. Existing saved hours are respected; a fresh database defaults to 07:00–22:00.
 Choose 00:00–24:00 if you want the entire day.
 
-**Settings → Calendars → Shown on this screen** contains the visibility toggles
-previously in the calendar toolbar. Existing choices are kept in this browser;
-**Show everyone** restores all people, and shared household events stay visible.
+The bottom row lists your assigned profiles, with Settings on the right. The local
+preview starts as an administrator; **Settings → Profiles** manages disposable
+profiles, people, memberships and defaults. Production uses the certificate proxy
+handoff documented in [profiles.md](profiles.md).
+
+The calendar toolbar's **Choose calendars** dropdown controls multiple calendars
+at once, replacing the add-event button. Visibility is saved with the profile and
+shared with its members. Tap an empty calendar slot to add an event.
 
 The calendar toolbar's **Sync now** button runs the same Google/iCloud sync as
 Settings and refreshes the visible events immediately. It shows progress and any
@@ -54,7 +59,8 @@ and the grid uses clock hours on the days when the clocks change too.
 The separate Compose project binds only to localhost. It uses a fresh named database
 volume, ignores the production `.env`, and disables calendar sync and release checks.
 Browser tests mock calendar data and settings, with a disposable local calendar for
-event-saving checks that is removed afterwards. They do not modify your preview events.
+event-saving checks that is removed afterwards. Profile tests also create a disposable
+shared profile and person, then archive/disable them. They do not modify your preview events.
 Tests use Europe/Ljubljana time and cover overnight week rollover, including DST.
 No host `node_modules`, Python virtualenv or browser profiles are created.
 

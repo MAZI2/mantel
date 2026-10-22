@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../../api/client'
+import { useNavigate } from 'react-router-dom'
+import { api, profileHref } from '../../api/client'
 import { providerLabel } from '../../api/providers'
 import { groupCalendarsBySource } from './groupCalendars'
 import { useCalendars, useEntityMutation, useSettings, useUsers } from '../../api/hooks'
@@ -14,9 +15,11 @@ import { WeatherTab } from './WeatherTab'
 import { THEMES } from '../../theme'
 import { PALETTE } from './palette'
 import { timeAgo } from './timeAgo'
-import { usePersonFilter } from '../../hooks/usePersonFilter'
+import { useSession } from '../../profiles/ProfileProvider'
+import { ProfilesTab } from './ProfilesTab'
 
 const TABS = [
+  'profiles',
   'people',
   'google',
   'icloud',
@@ -31,6 +34,7 @@ const TABS = [
 type Tab = (typeof TABS)[number]
 
 const TAB_LABELS: Record<Tab, string> = {
+  profiles: 'Profiles',
   people: 'Family',
   google: 'Google',
   icloud: 'Apple',
@@ -43,25 +47,28 @@ const TAB_LABELS: Record<Tab, string> = {
 }
 
 export function SettingsPage() {
+  const session = useSession()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>(() => {
     const requested = new URLSearchParams(window.location.search).get('tab')
-    return TABS.includes(requested as Tab) ? (requested as Tab) : 'people'
+    return TABS.includes(requested as Tab) && (requested !== 'profiles' || session.is_admin) ? (requested as Tab) : 'people'
   })
   return (
     <div className="settings">
       <div className="settings__tabs">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t !== 'profiles' || session.is_admin).map((t) => (
           <button
             key={t}
             className="settings__tab"
             aria-current={tab === t ? 'page' : undefined}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); void navigate(profileHref(`/settings?tab=${t}`), { replace: true }) }}
           >
             {TAB_LABELS[t]}
           </button>
         ))}
       </div>
       <div className="settings__body">
+        {tab === 'profiles' && session.is_admin && <ProfilesTab />}
         {tab === 'people' && <PeopleTab />}
         {tab === 'google' && <GoogleTab />}
         {tab === 'icloud' && <ICloudTab />}
@@ -163,7 +170,6 @@ interface CalendarSyncStatus {
 function CalendarsTab() {
   const { data: calendars = [] } = useCalendars()
   const { data: users = [] } = useUsers()
-  const { toggle, showEveryone, isVisible, anyHidden } = usePersonFilter()
   // Only for the "synced 5 min ago" / error hints beside each Syncing toggle --
   // a switch with no feedback gives you no way to tell it worked.
   const { data: status } = useQuery({
@@ -220,41 +226,8 @@ function CalendarsTab() {
   return (
     <section className="panel">
       <h2>Calendars</h2>
-      {users.length > 0 && (
-        <>
-          <h3 className="settings__h3" id="calendar-visibility">Shown on this screen</h3>
-          <p className="hint">
-            Choose whose events appear on the calendar in this browser. Shared household
-            events stay visible.
-          </p>
-          <div className="peoplefilter" role="group" aria-labelledby="calendar-visibility">
-            {users.map((u) => {
-              const shown = isVisible(u.id)
-              return (
-                <button
-                  key={u.id}
-                  className="personchip"
-                  data-hidden={!shown}
-                  aria-pressed={shown}
-                  style={shown ? { background: u.color, borderColor: u.color } : undefined}
-                  onClick={() => toggle(u.id)}
-                  title={shown ? `Hide ${u.name}'s events` : `Show ${u.name}'s events`}
-                >
-                  {u.avatar_emoji && <span aria-hidden>{u.avatar_emoji}</span>}
-                  {u.name}
-                </button>
-              )
-            })}
-            {anyHidden && (
-              <button className="personchip personchip--all" onClick={showEveryone}>
-                Show everyone
-              </button>
-            )}
-          </div>
-        </>
-      )}
       <p className="hint">
-        Every calendar in the house, wherever it comes from — Google, Apple, or made here.
+        Every calendar in this profile, wherever it comes from — Google, Apple, or made here.
         <strong> Assign a calendar to somebody</strong> and it starts syncing straight away,
         with its events in that person's colour. Set it back to Unclaimed and it stops
         syncing and disappears from the wall.
@@ -371,7 +344,7 @@ function DisplayTab() {
   return (
     <section className="panel">
       <h2>Display</h2>
-      <p className="hint">These apply to every screen in the house.</p>
+      <p className="hint">These settings are shared by everyone using this profile.</p>
 
       <div className="row">
         <div className="row__name row__name--static">Text size</div>

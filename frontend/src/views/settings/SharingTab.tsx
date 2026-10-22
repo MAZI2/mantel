@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../../api/client'
+import { api, profileHref } from '../../api/client'
 import { useCalendars, useEntityMutation, useSettings } from '../../api/hooks'
 import type { AppSettings } from '../../api/types'
 
@@ -44,7 +44,7 @@ export function SharingTab() {
   // defaults to localhost, so a household that never configured Google would
   // otherwise be handed a link that resolves to the phone itself.
   const feedUrl = (path: string) =>
-    `${window.location.origin}/api/feeds/${path}?token=${feed.token}`
+    `${window.location.origin}${profileHref(`/api/feeds/${path}?token=${feed.token}`)}`
 
   const testHa = async () => {
     setTesting(true)

@@ -19,6 +19,8 @@ services:
       SYNC_ENABLED: 'false'
       UPDATE_CHECK_ENABLED: 'false'
       PUBLIC_BASE_URL: http://localhost:${LOCAL_PORT:-8081}
+      MANTEL_AUTH_MODE: local
+      MANTEL_PROXY_SECRET: local-preview-identity-testing-only
     restart: 'no'
 
   frontend-tests:

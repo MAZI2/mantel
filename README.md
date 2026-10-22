@@ -349,14 +349,18 @@ newsletter to the calendar" is a thing an agent can actually do.
 
 ## Security
 
-There is **no authentication**, deliberately. A wall calendar that asks a ten-year-old to log in
-before adding football practice doesn't get used, and this is designed to live behind your front
-door.
+This fork uses certificate authentication at the reverse proxy. Mantel verifies the
+proxy's identity and server-only shared secret, then checks profile memberships.
+Only administrators manage people and profiles; members of a shared profile can
+edit its calendars, integrations and settings. Existing data becomes the initial
+administrator's personal profile.
 
-That means: **don't expose it directly to the internet.** If you need access from outside the
-house, put it behind a VPN — Tailscale and WireGuard both work well. The one exception is the
-`/api/feeds/*.ics` links, which carry a token, because a feed URL is the thing most likely to be
-pasted into a service outside the house.
+Configure the handoff before deploying this version: [Profiles and certificate
+proxy setup](docs/profiles.md). Production defaults to `MANTEL_AUTH_MODE=proxy`
+and refuses access without the handoff. Keep the backend reachable only by the
+trusted proxy. The isolated localhost preview explicitly uses local authentication.
+Read-only `/api/feeds/*.ics` subscriptions use profile-specific bearer links;
+anyone holding such a link can read that profile's schedule.
 
 Secrets you give it (the Google client secret, Home Assistant token) are encrypted at rest with
 your `SECRET_KEY` and are never readable back out through the API.

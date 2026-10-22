@@ -196,6 +196,56 @@ button {
   min-height: 0;
 }
 
+/* Profiles stay left-to-right at the bottom in both orientations. Settings stays
+   reachable while a long list of memberships scrolls independently. */
+.shell.shell--profiles {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'top' 'main' 'nav';
+}
+
+.shell--profiles .shell__nav {
+  flex-direction: row;
+  width: auto;
+  height: auto;
+  border-right: 0;
+  border-top: 1px solid var(--border);
+  padding: 6px max(6px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-bottom));
+}
+
+.profile-nav {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.profile-nav .navbtn,
+.shell--profiles .profile-settings {
+  flex: 0 0 auto;
+  min-width: 80px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  padding: 10px 12px;
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+.profile-nav .navbtn[aria-pressed='true'] {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+.session-message {
+  max-width: 900px;
+  padding: 24px;
+  margin: auto;
+  overflow-wrap: anywhere;
+}
+
 /* Same reason: the nav is a flex row of fixed-ish buttons and must live within the
    shell's width rather than setting it. */
 .shell__nav {

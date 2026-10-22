@@ -60,7 +60,11 @@ def feed_token() -> str:
     URL is the credential, exactly like Google's own "secret address in iCal
     format".
     """
-    digest = hashlib.sha256(f"{_FEED_SALT}:{get_settings().secret_key}".encode()).digest()
+    from ..profile_context import current_profile
+
+    profile = current_profile.get()
+    salt = _FEED_SALT if not profile or profile.legacy else f"{_FEED_SALT}:{profile.id}"
+    digest = hashlib.sha256(f"{salt}:{get_settings().secret_key}".encode()).digest()
     return base64.urlsafe_b64encode(digest)[:32].decode()
 
 

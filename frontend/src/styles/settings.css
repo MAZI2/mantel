@@ -42,6 +42,38 @@
   font-size: var(--font-lg);
 }
 
+.access-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.access-card h3,
+.access-card h4 { margin: 0; }
+.access-card fieldset {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  padding: 12px;
+}
+.access-card .field { flex: none; }
+.access-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--touch);
+  overflow-wrap: anywhere;
+}
+.access-choice input { width: 20px; height: 20px; flex: 0 0 auto; }
+.profile-position { flex: 0 0 80px; }
+
 .hint {
   color: var(--text-dim);
   font-size: var(--font-sm);
@@ -96,56 +128,7 @@
 
 /* --------------------- calendars, grouped by account ---------------------- */
 
-.peoplefilter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 18px;
-}
 
-/* Colour shows which profiles are visible; the muted, crossed-out state marks
-   profiles hidden on this screen. */
-.personchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  border: 2px solid transparent;
-  color: var(--chip-ink);
-  font-size: var(--font-sm);
-  font-weight: 600;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  min-height: var(--touch);
-  min-width: 0;
-  max-width: 100%;
-  flex: 0 0 auto;
-  transition:
-    background 150ms ease,
-    color 150ms ease,
-    opacity 150ms ease;
-}
-
-.personchip[data-hidden='true'] {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--text-dim);
-  opacity: 0.55;
-  font-weight: 500;
-  text-decoration: line-through;
-}
-
-.personchip:active {
-  filter: brightness(1.15);
-}
-
-.personchip--all {
-  background: var(--bg-elev-2);
-  color: var(--text);
-  border-color: var(--border);
-  font-weight: 500;
-}
 
 .calgroup {
   margin-top: 18px;

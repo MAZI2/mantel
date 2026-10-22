@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Navigate, RouterProvider, createBrowserRouter } from 'react-router-dom'
@@ -12,28 +11,32 @@ import { CalendarPage } from './views/calendar/CalendarPage'
 import { DashboardPage } from './views/dashboard/DashboardPage'
 import { ListsPage } from './views/lists/ListsPage'
 import { SettingsPage } from './views/settings/SettingsPage'
+import { ProfileProvider } from './profiles/ProfileProvider'
+import { profileHref } from './api/client'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { refetchInterval: 60_000, refetchOnWindowFocus: true, staleTime: 15_000, retry: 1 },
-  },
-})
+function WeekRedirect() {
+  return <Navigate to={profileHref('/calendar/week')} replace />
+}
+
+function DocsRedirect() {
+  return <Navigate to={profileHref('/settings?tab=api')} replace />
+}
 
 const router = createBrowserRouter([
   {
     path: '/',
     element: <App />,
     children: [
-      { index: true, element: <Navigate to="/calendar/week" replace /> },
+      { index: true, element: <WeekRedirect /> },
       { path: 'calendar/week', element: <CalendarPage /> },
-      { path: 'calendar/:view', element: <Navigate to="/calendar/week" replace /> },
+      { path: 'calendar/:view', element: <WeekRedirect /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'lists', element: <ListsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       // The API guide used to be its own page. Keep old bookmarks and kiosk
       // shortcuts working by sending them to the tab that replaced it.
-      { path: 'docs', element: <Navigate to="/settings?tab=api" replace /> },
-      { path: '*', element: <Navigate to="/calendar/week" replace /> },
+      { path: 'docs', element: <DocsRedirect /> },
+      { path: '*', element: <WeekRedirect /> },
     ],
   },
 ])
@@ -51,8 +54,8 @@ if ('serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
+    <ProfileProvider>
       <RouterProvider router={router} />
-    </QueryClientProvider>
+    </ProfileProvider>
   </StrictMode>,
 )

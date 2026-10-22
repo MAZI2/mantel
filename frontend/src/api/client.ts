@@ -8,10 +8,32 @@ export class ApiError extends Error {
   }
 }
 
+let activeProfileId = ''
+let activeIdentity = ''
+
+export function selectProfile(identity: string, profileId: string) {
+  activeIdentity = identity
+  activeProfileId = profileId
+}
+
+export function profileHeaders(): Record<string, string> {
+  return activeProfileId ? { 'X-Mantel-Profile': activeProfileId } : {}
+}
+
+export function profileHref(path: string, id = activeProfileId): string {
+  const url = new URL(path, window.location.origin)
+  if (id) url.searchParams.set('profile', id)
+  return `${url.pathname}${url.search}${url.hash}`
+}
+
+export function profileStorageKey(key: string): string {
+  return activeProfileId ? `${key}:${activeIdentity}:${activeProfileId}` : key
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', ...profileHeaders(), ...(init?.headers ?? {}) },
   })
   if (!res.ok) {
     let code = 'error'
@@ -34,6 +56,8 @@ export const api = {
     request<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
+  put: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 }
 

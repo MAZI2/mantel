@@ -9,8 +9,9 @@ cost you a debugging session if you don't know it.
 ## What this is
 
 A self-hosted family calendar for a wall-mounted touchscreen. FastAPI + SQLAlchemy 2.0 behind a
-React 19 SPA, shipped as one Docker image. SQLite in WAL mode. No authentication, deliberately —
-it runs on a home LAN.
+React 19 SPA, shipped as one Docker image. SQLite in WAL mode. Certificate authentication is handled by a trusted reverse proxy;
+Mantel verifies its identity/secret handoff and enforces profile membership. See
+[docs/profiles.md](docs/profiles.md) before changing authentication or storage.
 
 The thing that makes it unusual is **two-way sync**, with both Google Calendar and iCloud. Most
 self-hosted calendars only display. Breaking the round trip is the worst regression available.

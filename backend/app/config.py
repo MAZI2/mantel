@@ -23,6 +23,12 @@ class Settings(BaseSettings):
 
     # SQLite by default. Point at Postgres (postgresql+psycopg://...) for heavier use.
     database_url: str = "sqlite:////data/family.db"
+    # TLS/client certificates belong to the reverse proxy. Only its authenticated
+    # identity handoff is accepted here; admin roles and memberships live in Mantel.
+    mantel_auth_mode: str = "proxy"
+    mantel_proxy_secret: str = ""
+    mantel_bootstrap_admin_identity: str = ""
+    mantel_profile_data_dir: str = ""
 
     # Encrypts stored Google OAuth tokens and signs OAuth state. Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

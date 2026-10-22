@@ -12,16 +12,21 @@ os.environ["APP_VERSION"] = "test"
 os.environ["SYNC_ENABLED"] = "false"
 # Never let a test run reach out to GitHub from the startup update check.
 os.environ["UPDATE_CHECK_ENABLED"] = "false"
+os.environ["MANTEL_AUTH_MODE"] = "local"
+os.environ["MANTEL_PROXY_SECRET"] = "test-proxy-secret"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base  # noqa: E402
+from app.profiles import RegistryBase, registry_engine  # noqa: E402
 
 
 @pytest.fixture
 def client():
+    RegistryBase.metadata.drop_all(bind=registry_engine)
+    RegistryBase.metadata.create_all(bind=registry_engine)
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     with TestClient(app) as c:

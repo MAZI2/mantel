@@ -7,10 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .auth import ProfileMiddleware
 from .bootstrap import ensure_defaults
 from .config import get_settings
 from .db import SessionLocal, engine
 from .errors import register_error_handlers
+from .profiles import active_scopes, bootstrap_registry, initialise_profile
 from .routers import (
     accounts,
     calendars,
@@ -20,6 +22,7 @@ from .routers import (
     lists,
     meta,
     photos,
+    profiles,
     sync,
     users,
     weather,
@@ -49,6 +52,14 @@ async def lifespan(app: FastAPI):
     sync_schema(engine)
     with SessionLocal() as db:
         ensure_defaults(db)
+    bootstrap_registry()
+    # Upgrades apply to inactive profiles too when they are restored; active ones
+    # are ready before requests or background syncing can reach their databases.
+    from .profiles import Profile, RegistrySession
+
+    with RegistrySession() as registry:
+        for scope in active_scopes():
+            initialise_profile(registry.get(Profile, scope.id))
     tasks = scheduler.start(asyncio.get_running_loop())
     try:
         yield
@@ -60,8 +71,8 @@ app = FastAPI(
     title="Family Calendar API",
     version=settings.version,
     description=(
-        "Self-hosted family calendar. No authentication: this API is designed to run on a "
-        "trusted home network. Every feature in the UI is backed by an endpoint here, so "
+        "Self-hosted calendar with certificate-proxy authentication and isolated profiles. "
+        "Each profile requires membership. Every feature in the UI is backed by an endpoint, so "
         "external tools and AI agents can do anything the app can do.\n\n"
         "See `/api/ai-guide` for a task-oriented guide written for LLM agents."
     ),
@@ -73,15 +84,19 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
+    allow_origins=[]
+    if settings.mantel_auth_mode == "proxy"
+    else [o.strip() for o in settings.cors_origins.split(",")],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ProfileMiddleware)
 
 register_error_handlers(app)
 
 app.include_router(meta.router, prefix="/api")
+app.include_router(profiles.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(calendars.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
@@ -107,8 +122,8 @@ if STATIC_DIR:
                 status_code=404,
                 content={"error": {"code": "not_found", "message": "Unknown API route"}},
             )
-        candidate = STATIC_DIR / full_path
-        if full_path and candidate.is_file():
+        candidate = (STATIC_DIR / full_path).resolve()
+        if full_path and candidate.is_relative_to(STATIC_DIR.resolve()) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(
             STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache, must-revalidate"}

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
-import { api } from '../../api/client'
+import { api, profileHref } from '../../api/client'
 import { useEntityMutation, useSettings } from '../../api/hooks'
 import type { AppSettings, Photo } from '../../api/types'
 
@@ -162,7 +162,7 @@ function PhotoLibrary() {
       body.append('file', file)
       // Not the shared api client: this is multipart, and setting a JSON
       // Content-Type here would strip the multipart boundary.
-      const res = await fetch('/api/photos', { method: 'POST', body })
+      const res = await fetch(profileHref('/api/photos'), { method: 'POST', body })
       if (!res.ok) {
         const detail = await res.json().catch(() => null)
         failures.push(`${file.name}: ${detail?.error?.message ?? res.statusText}`)

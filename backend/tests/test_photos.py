@@ -34,7 +34,9 @@ def test_upload_and_list(client):
     assert r.status_code == 201
     body = r.json()
     assert body["width"] == 800
-    assert body["url"] == f"/api/photos/{body['id']}/file"
+    profile = client.get("/api/session").json()["default_profile_id"]
+    assert body["url"] == f"/api/photos/{body['id']}/file?profile={profile}"
+
 
     listed = client.get("/api/photos").json()
     assert len(listed) == 1

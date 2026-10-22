@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useEvents, useSettings, useSyncNow } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
 import { EventDialog } from '../../components/EventDialog'
-import { usePersonFilter } from '../../hooks/usePersonFilter'
+import { CalendarPicker } from '../../components/CalendarPicker'
 import { TimeGridView } from './TimeGridView'
 import { rangeFor } from './dateRange'
 
@@ -13,7 +13,6 @@ export function CalendarPage() {
   const { data: settings } = useSettings()
   const sync = useSyncNow()
   const { isSuccess: synced, reset: resetSync } = sync
-  const { isVisible } = usePersonFilter()
   const [anchor, setAnchor] = useState(() => new Date())
   const [, setClock] = useState(() => Date.now())
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
@@ -22,7 +21,8 @@ export function CalendarPage() {
   const weekStartsOn = (settings?.first_day_of_week === 1 ? 1 : 0) as 0 | 1
   const range = rangeFor('week', anchor, weekStartsOn)
   const { data: fetched = [], isLoading } = useEvents(range.start, range.end)
-  const events = fetched.filter((event) => isVisible(event.user_id))
+  const hidden = settings?.hidden_calendar_ids ?? []
+  const events = fetched.filter((event) => !hidden.includes(event.calendar_id))
 
   useEffect(() => {
     if (!synced) return
@@ -96,9 +96,7 @@ export function CalendarPage() {
             ›
           </button>
         </div>
-        <button className="iconbtn iconbtn--primary" onClick={() => openSlot(nextHour())} aria-label="Add event">
-          +
-        </button>
+        <CalendarPicker />
       </header>
 
       {sync.isError && (
@@ -134,13 +132,6 @@ export function CalendarPage() {
       )}
     </div>
   )
-}
-
-function nextHour(): Date {
-  const d = new Date()
-  d.setMinutes(0, 0, 0)
-  d.setHours(d.getHours() + 1)
-  return d
 }
 
 function titleFor(start: Date, end: Date): string {

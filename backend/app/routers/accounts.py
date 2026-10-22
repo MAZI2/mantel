@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import LinkedAccount, User
+from ..profile_context import current_profile
 from ..services import google_config, google_oauth, icloud_auth, sync_engine
 from ..services.crypto import read_state, sign_state
 from ..services.google_api import GoogleApiError
@@ -65,6 +66,7 @@ def list_accounts(db: Session = Depends(get_db)) -> list[LinkedAccount]:
     ),
 )
 def google_auth_url(
+    request: Request,
     user_id: int = Query(description="Which family member this Google account belongs to."),
     db: Session = Depends(get_db),
 ) -> AuthUrlOut:
@@ -77,7 +79,18 @@ def google_auth_url(
         )
     if db.get(User, user_id) is None:
         raise HTTPException(404, "User not found")
-    return AuthUrlOut(url=google_oauth.build_auth_url(cfg, sign_state({"user_id": user_id})))
+    return AuthUrlOut(
+        url=google_oauth.build_auth_url(
+            cfg,
+            sign_state(
+                {
+                    "user_id": user_id,
+                    "profile_id": current_profile.get().id,
+                    "identity": request.state.principal.identity,
+                }
+            ),
+        )
+    )
 
 
 @router.get(
@@ -91,8 +104,17 @@ def google_callback(
     error: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    from urllib.parse import urlencode
+
+    profile_id = current_profile.get().id
+
+    def redirect(**values):
+        return RedirectResponse(
+            f"/settings?{urlencode({'tab': 'google', 'profile': profile_id, **values})}"
+        )
+
     if error:
-        return RedirectResponse(f"/settings?tab=google&error={error}")
+        return redirect(error=error)
 
     payload = read_state(state)
     if payload is None:
@@ -109,7 +131,7 @@ def google_callback(
     # whose token cannot read a calendar leaves a row that looks connected and
     # fails on every sync, so refuse it here while we can still explain why.
     if google_oauth.missing_calendar_scope(tokens):
-        return RedirectResponse(f"/settings?tab=google&error={ERROR_NO_CALENDAR_SCOPE}")
+        return redirect(error=ERROR_NO_CALENDAR_SCOPE)
 
     email = google_oauth.fetch_email(tokens["access_token"])
 
@@ -135,9 +157,9 @@ def google_callback(
         account.status = "needs_reauth"
         account.last_error = f"Could not list calendars: {exc}"[:500]
         db.commit()
-        return RedirectResponse(f"/settings?tab=google&error={ERROR_DISCOVERY_FAILED}")
+        return redirect(error=ERROR_DISCOVERY_FAILED)
 
-    return RedirectResponse(f"/settings?tab=google&linked={email}")
+    return redirect(linked=email)
 
 
 @router.post(

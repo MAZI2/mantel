@@ -1,7 +1,13 @@
 # Mantel — API guide for AI agents
 
-You are talking to a self-hosted family calendar that runs on a home network.
-**There is no authentication.** Every action the touchscreen UI can perform is available here.
+You are talking to a self-hosted calendar behind certificate authentication. The trusted
+proxy supplies `X-Mantel-Identity` and `X-Mantel-Proxy-Secret`; browsers must never
+receive the proxy secret. `GET /api/session` reports your assigned profiles. Select
+one with `X-Mantel-Profile: <id>` (or `?profile=<id>`); omission uses your default.
+Every data endpoint checks membership, including for administrators. All members
+can edit everything in a shared profile. `/api/admin/*` additionally requires an
+administrator. Users below are calendar owners within a profile, separate from
+these authenticated people. See [profiles.md](profiles.md) for server setup.
 
 - Base URL: the host serving the UI, plus `/api` — e.g. `http://localhost:8080/api`
 - Full machine-readable schema: `GET /api/openapi.json`

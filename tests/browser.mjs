@@ -8,7 +8,7 @@ const errors = []
 
 async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal', allDay = false,
   weekStartsOn = 1, dayStartHour = 0, dayEndHour = 24,
-  timezoneId = 'Europe/Ljubljana', fixtureEvents = null, fixtureUsers = [],
+  timezoneId = 'Europe/Ljubljana', fixtureEvents = null, fixtureUsers = [], fixtureCalendars = null,
   time = '2026-10-21T12:00:00+02:00', path = '/' } = {}) {
   const context = await browser.newContext({ baseURL, viewport, timezoneId,
     hasTouch: true, serviceWorkers: 'block' })
@@ -25,6 +25,7 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
     return route.fulfill({ json: savedSettings })
   })
   await context.route('**/api/users', (route) => route.fulfill({ json: fixtureUsers }))
+  if (fixtureCalendars) await context.route('**/api/calendars', (route) => route.fulfill({ json: fixtureCalendars }))
   const eventRanges = []
   await context.route('**/api/events?*', (route) => {
     eventRanges.push(new URL(route.request().url()).searchParams.get('start'))
@@ -55,7 +56,7 @@ try {
         assert.equal(new URL(page.url()).pathname, '/calendar/week')
         assert.equal(await page.locator('.timegrid__dayhead').count(), 7)
         assert.equal(await page.locator('.viewtabs, .navviews, .timestrip').count(), 0)
-        assert.equal(await page.getByRole('link', { name: 'Calendar', exact: true }).count(), 1)
+        assert.equal(await page.locator('.profile-nav button[aria-pressed=true]').count(), 1)
         const syncBounds = await page.getByRole('button', { name: 'Sync now', exact: true }).boundingBox()
         assert.ok(syncBounds.x >= 0 && syncBounds.x + syncBounds.width <= viewport.width,
           'Sync now is outside the screen')
@@ -110,75 +111,47 @@ try {
   console.log('PASS: full-day scrolling, compact rows and no horizontal navigation at 18 size/scale/all-day combinations')
 
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 720 }]) {
-    const users = [
-      { id: 9501, name: 'Alexandria with a long family member name', color: '#38bdf8', avatar_emoji: '🌻' },
-      { id: 9502, name: 'Sam', color: '#fbbf24', avatar_emoji: null },
-    ]
-    const events = [
-      { id: 9501, title: 'Alex appointment', user_id: 9501 },
-      { id: 9502, title: 'Sam appointment', user_id: 9502 },
-      { id: 9503, title: 'Household reminder', user_id: null },
-    ].map((event) => ({ ...event, calendar_id: 1, calendar_name: 'Family', color: '#38bdf8',
+    const calendars = ['Work', 'Shared', 'Home'].map((name, i) => ({
+      id: i + 9501, name, color: '#38bdf8', is_local: true, writable: true, claimed_by_user_id: null,
+    }))
+    const events = calendars.map((calendar, i) => ({
+      id: i + 9501, title: `${calendar.name} appointment`, calendar_id: calendar.id,
+      calendar_name: calendar.name, user_id: null, color: '#38bdf8',
       start_at: '2026-10-21T14:00:00+02:00', end_at: '2026-10-21T15:00:00+02:00',
       all_day: false, editable: true, origin: 'local',
     }))
-    const { context, page } = await open({ viewport, fixtureUsers: users, fixtureEvents: events })
-    await page.evaluate(() => localStorage.setItem('famcal.hiddenPeople', '[9502]'))
+    const { context, page } = await open({ viewport, fixtureCalendars: calendars, fixtureEvents: events })
+    const work = page.locator('.event-block').filter({ hasText: 'Work appointment' })
+    const shared = page.locator('.event-block').filter({ hasText: 'Shared appointment' })
+    await work.waitFor()
+    await shared.waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Add event', exact: true }).count(), 0)
+    const picker = page.getByRole('button', { name: 'Choose calendars', exact: true })
+    await picker.click()
+    const group = page.getByRole('group', { name: 'Visible calendars', exact: true })
+    await group.getByRole('checkbox', { name: 'Work', exact: true }).uncheck()
+    await work.waitFor({ state: 'hidden' })
+    await shared.waitFor()
+    assert.ok(await group.evaluate((el) => el.getBoundingClientRect().right <= innerWidth && el.getBoundingClientRect().left >= 0))
+    await page.keyboard.press('Escape')
+    assert.equal(await picker.getAttribute('aria-expanded'), 'false')
     await page.reload()
-    const alex = page.locator('.event-block').filter({ hasText: 'Alex appointment' })
-    const sam = page.locator('.event-block').filter({ hasText: 'Sam appointment' })
-    const household = page.locator('.event-block').filter({ hasText: 'Household reminder' })
-    await alex.waitFor()
-    await sam.waitFor({ state: 'hidden' })
-    await household.waitFor()
-    assert.equal(await page.locator('.calpage__bar .peoplefilter, .calpage__bar .personchip').count(), 0)
-    let mutations = 0
-    context.on('request', (request) => {
-      if (['POST', 'PATCH', 'DELETE'].includes(request.method())) mutations += 1
-    })
-    const group = page.getByRole('group', { name: 'Shown on this screen', exact: true })
-    const alexToggle = group.getByRole('button', { name: users[0].name, exact: true })
-    const samToggle = group.getByRole('button', { name: 'Sam', exact: true })
-    const settingsFilters = async () => {
-      await page.getByRole('link', { name: 'Settings', exact: true }).click()
-      await page.getByRole('button', { name: 'Calendars', exact: true }).click()
-      await group.waitFor()
-    }
-    await settingsFilters()
-    assert.equal(await alexToggle.getAttribute('aria-pressed'), 'true')
-    assert.equal(await samToggle.getAttribute('aria-pressed'), 'false', 'previously hidden choices were lost')
-    assert.ok(await group.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'toggles overflow on mobile')
-    await alexToggle.click()
-    await page.waitForFunction(() => JSON.parse(localStorage.getItem('famcal.hiddenPeople')).length === 2)
-    await page.getByRole('link', { name: 'Calendar', exact: true }).click()
-    await household.waitFor()
-    await alex.waitFor({ state: 'hidden' })
-    await sam.waitFor({ state: 'hidden' })
-    await page.reload()
-    await household.waitFor()
-    await alex.waitFor({ state: 'hidden' })
-
-    await settingsFilters()
-    await samToggle.click()
-    await page.waitForFunction(() => !JSON.parse(localStorage.getItem('famcal.hiddenPeople')).includes(9502))
-    await page.getByRole('link', { name: 'Calendar', exact: true }).click()
-    await sam.waitFor()
-    await alex.waitFor({ state: 'hidden' })
-    await settingsFilters()
-    assert.equal(await samToggle.getAttribute('aria-pressed'), 'true')
-    assert.equal(await alexToggle.getAttribute('aria-pressed'), 'false')
-    await group.getByRole('button', { name: 'Show everyone', exact: true }).click()
-    await page.waitForFunction(() => localStorage.getItem('famcal.hiddenPeople') === '[]')
-    await page.getByRole('link', { name: 'Calendar', exact: true }).click()
-    await alex.waitFor()
-    await sam.waitFor()
-    await page.reload()
-    await alex.waitFor()
-    await sam.waitFor()
-    assert.equal(mutations, 0, 'visibility preferences must not change syncing or saved events')
+    await shared.waitFor()
+    await work.waitFor({ state: 'hidden' })
+    await picker.click()
+    await group.getByRole('checkbox', { name: 'Shared', exact: true }).uncheck()
+    await shared.waitFor({ state: 'hidden' })
+    await group.getByRole('button', { name: 'Show all', exact: true }).click()
+    await work.waitFor()
+    await shared.waitFor()
+    const nav = await page.locator('.shell__nav').boundingBox()
+    assert.ok(nav.y + nav.height >= viewport.height - 2, 'profiles must be in the bottom row in landscape too')
+    const settingsButton = await page.getByRole('link', { name: 'Settings', exact: true }).boundingBox()
+    assert.ok(settingsButton.x + settingsButton.width >= viewport.width - 20)
+    assert.equal(await page.getByRole('link', { name: /Dashboard|Lists/ }).count(), 0)
     await context.close()
   }
-  console.log('PASS: Settings visibility toggles preserve choices, filter events after navigation/reload and restore everyone without toolbar controls')
+  console.log('PASS: calendar dropdown supports simultaneous calendars, persistence and show all; profile row stays at the bottom')
 
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 720 }]) {
     for (const scale of ['normal', 'large', 'wall']) {
@@ -281,8 +254,10 @@ try {
     const calendar = await context.request.post('/api/calendars', { data: { name: 'DST recurrence test' } })
     assert.equal(calendar.status(), 201)
     weeklyCalendarId = (await calendar.json()).id
+    await page.reload()
+    await page.locator('.timegrid__slot').first().waitFor()
     await context.unroute('**/api/events?*')
-    await page.getByRole('button', { name: 'Add event', exact: true }).click()
+    await page.locator('.timegrid__col').nth(2).locator('.timegrid__slot').nth(14).click()
     await page.getByLabel('Title', { exact: true }).fill('Always two pm')
     await page.getByRole('combobox', { name: 'Calendar', exact: true }).selectOption(String(weeklyCalendarId))
     await page.getByLabel('Starts', { exact: true }).fill('2026-10-21T14:00')
@@ -539,7 +514,7 @@ try {
       page.waitForResponse((response) => response.url().endsWith('/api/settings') && response.request().method() === 'PATCH'),
       ends.selectOption(String(end)),
     ])
-    await page.getByRole('link', { name: 'Calendar', exact: true }).click()
+    await page.locator('.profile-nav button[aria-pressed=true]').click()
     await page.reload()
     await page.waitForFunction((count) => document.querySelectorAll('.timegrid__slot').length === count, (end - start) * 7)
     const slots = page.locator('.timegrid__col').first().locator('.timegrid__slot')
@@ -567,6 +542,8 @@ try {
     } })
     assert.equal(response.status(), 201)
     testCalendarId = (await response.json()).id
+    await page.reload()
+    await page.locator('.timegrid__slot').first().waitFor()
     await context.unroute('**/api/events?*')
     await page.locator('.timegrid__col').first().locator('.timegrid__slot').nth(10).click()
     const starts = page.getByLabel('Starts', { exact: true })
@@ -658,7 +635,7 @@ try {
       }
       // Creating an all-day event uses inclusive dates too, without changing the
       // one-hour default for the usual timed-event flow.
-      await page.getByRole('button', { name: 'Add event', exact: true }).click()
+      await page.locator('.timegrid__col').nth(2).locator('.timegrid__slot').nth(14).click()
       await page.getByRole('textbox', { name: 'Title', exact: true }).fill('New all-day')
       await page.getByRole('combobox', { name: 'Calendar', exact: true }).selectOption(String(calendarId))
       await page.getByRole('button', { name: 'All day' }).click()
@@ -698,6 +675,84 @@ try {
     await context.close()
   }
   console.log('PASS: automatic week rollover for Sunday/Monday, DST, year boundary and wake after missed weeks')
+  // Real isolated databases, two authenticated people and the administrator UI.
+  const admin = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' })
+  const adminPage = await admin.newPage()
+  adminPage.on('pageerror', (e) => errors.push(e.message))
+  const adminSession = await (await admin.request.get('/api/session')).json()
+  const personalId = adminSession.default_profile_id
+  const sharedName = `Shared browser ${Date.now()}`
+  const partnerIdentity = `partner-${Date.now()}`
+  const partnerName = `Browser partner ${Date.now()}`
+  let sharedId
+  let partner
+  try {
+    await adminPage.goto('/settings?tab=profiles')
+    await adminPage.getByRole('heading', { name: 'Profiles and access', exact: true }).waitFor()
+    await adminPage.getByLabel('New profile name', { exact: true }).fill(sharedName)
+    await adminPage.getByRole('button', { name: 'Create profile', exact: true }).click()
+    await adminPage.getByRole('button', { name: sharedName, exact: true }).waitFor()
+    sharedId = (await (await admin.request.get('/api/session')).json()).profiles.find((p) => p.name === sharedName).id
+    await adminPage.getByRole('button', { name: 'Profiles', exact: true }).click()
+    const addPerson = adminPage.getByRole('form', { name: 'Access for new person', exact: true })
+    await addPerson.getByRole('textbox', { name: 'Identifier for new person', exact: true }).fill(partnerIdentity)
+    await addPerson.getByRole('textbox', { name: 'Display name for new person', exact: true }).fill(partnerName)
+    await addPerson.getByRole('checkbox', { name: sharedName, exact: true }).check()
+    await addPerson.getByRole('button', { name: 'Add person', exact: true }).click()
+    await adminPage.getByRole('form', { name: `Access for ${partnerName}`, exact: true }).waitFor()
+    const sharedSettings = await (await admin.request.patch(`/api/settings?profile=${sharedId}`, { data: { theme: 'daylight', day_start_hour: 7 } })).json()
+    await adminPage.getByRole('button', { name: sharedName, exact: true }).click()
+    await adminPage.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    assert.equal(new URL(adminPage.url()).searchParams.get('profile'), sharedId)
+    assert.equal(await adminPage.locator('.timegrid__slot').count(), (sharedSettings.day_end_hour - 7) * 7)
+    await adminPage.getByRole('link', { name: 'Settings', exact: true }).click()
+    assert.equal(new URL(adminPage.url()).searchParams.get('profile'), sharedId)
+    await adminPage.getByRole('button', { name: sharedName, exact: true }).click()
+    await adminPage.locator('.timegrid__dayhead').first().waitFor()
+    assert.equal(await adminPage.locator('.timegrid__dayhead').count(), 7)
+    await adminPage.goto('/')
+    await adminPage.waitForURL(`**/calendar/week?profile=${personalId}`)
+    await adminPage.locator('.profile-nav button[aria-pressed=true]').waitFor()
+    assert.equal(new URL(adminPage.url()).searchParams.get('profile'), personalId)
+
+    partner = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, serviceWorkers: 'block',
+      extraHTTPHeaders: { 'X-Mantel-Identity': partnerIdentity, 'X-Mantel-Proxy-Secret': 'local-preview-identity-testing-only' } })
+    const page = await partner.newPage()
+    page.on('pageerror', (e) => errors.push(e.message))
+    await page.goto('/')
+    await page.waitForURL(`**/calendar/week?profile=${sharedId}`)
+    await page.getByRole('button', { name: sharedName, exact: true }).waitFor()
+    assert.equal(await page.locator('.profile-nav button').count(), 1)
+    assert.equal(new URL(page.url()).searchParams.get('profile'), sharedId)
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    await page.getByRole('link', { name: 'Settings', exact: true }).click()
+    assert.equal(await page.getByRole('button', { name: 'Profiles', exact: true }).count(), 0)
+    assert.equal((await partner.request.get(`/api/settings?profile=${personalId}`)).status(), 403)
+    assert.equal((await partner.request.get('/api/admin/profiles')).status(), 403)
+    // Members can change common settings; a fresh administrator screen sees them.
+    await partner.request.patch(`/api/settings?profile=${sharedId}`, { data: { theme: 'hearth' } })
+    await adminPage.getByRole('button', { name: sharedName, exact: true }).click()
+    await adminPage.waitForFunction(() => document.documentElement.dataset.theme === 'hearth')
+    await page.goto(`/?profile=${personalId}`)
+    await page.getByRole('alert').filter({ hasText: 'not available' }).waitFor()
+    await page.goto('/')
+    await page.waitForURL(`**/calendar/week?profile=${sharedId}`)
+    await page.getByRole('button', { name: sharedName, exact: true }).waitFor()
+    await admin.request.put(`/api/admin/people/${partnerIdentity}`, { data: {
+      identity: partnerIdentity, name: partnerName, enabled: false, profile_ids: [sharedId], default_profile_id: sharedId,
+    } })
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await page.getByRole('alert').filter({ hasText: 'No Mantel access' }).waitFor()
+  } finally {
+    if (partner && sharedId) await admin.request.put(`/api/admin/people/${partnerIdentity}`, { data: {
+      identity: partnerIdentity, name: partnerName, enabled: false, profile_ids: [sharedId], default_profile_id: sharedId,
+    } })
+    if (sharedId) await admin.request.patch(`/api/admin/profiles/${sharedId}`, { data: { active: false } })
+    await partner?.close()
+    await admin.close()
+  }
+  console.log('PASS: administrator creates profiles and memberships; two people get independent defaults, shared settings and enforced access')
+
   assert.deepEqual(errors, [], 'browser JavaScript errors')
 } finally {
   await browser.close()

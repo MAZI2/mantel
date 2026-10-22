@@ -157,6 +157,7 @@ export interface SharedList {
 }
 
 export interface AppSettings {
+  hidden_calendar_ids: number[]
   first_day_of_week: number
   time_format_24h: boolean
   home_timezone: string

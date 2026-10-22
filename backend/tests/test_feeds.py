@@ -193,7 +193,9 @@ def test_missing_calendar_404s(client):
 
 
 def test_feed_requires_a_token(client, local_calendar):
-    assert client.get("/api/feeds/all.ics").status_code == 422  # missing param
+    assert (
+        client.get("/api/feeds/all.ics").status_code == 403
+    )  # rejected before opening a profile database
 
 
 def test_wrong_token_is_refused(client, local_calendar):
@@ -206,11 +208,14 @@ def test_wrong_token_is_refused(client, local_calendar):
 def test_token_endpoint_returns_a_usable_url(client):
     body = client.get("/api/feeds/token").json()
     assert body["token"] == token()
-    assert body["all_calendars_url"].endswith(f"/api/feeds/all.ics?token={token()}")
+    assert body["all_calendars_url"].endswith(
+        f"/api/feeds/all.ics?token={token()}&profile={body['profile_id']}"
+    )
     assert "password" in body["hint"].lower()
 
 
 def test_token_is_stable_across_calls(client):
-    assert client.get("/api/feeds/token").json()["token"] == (
+    assert (
         client.get("/api/feeds/token").json()["token"]
+        == (client.get("/api/feeds/token").json()["token"])
     )

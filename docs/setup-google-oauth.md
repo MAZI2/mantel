@@ -192,9 +192,9 @@ Put the app behind a name Google accepts and this problem disappears for good:
   keep `family.lan` on the same proxy for everyday use, since the app doesn't care
   which hostname it's reached on.
 
-Then set **This app's address** to that URL and register it in Google normally. Do not expose
-the app itself to the internet — it has no authentication. A Tailscale-only address stays
-private to your devices.
+Then set **This app's address** to that URL and register it in Google normally. This fork
+requires the certificate proxy handoff described in [profiles.md](profiles.md). A
+Tailscale-only address can additionally keep access private to your devices.
 
 ---
 
@@ -312,9 +312,9 @@ Interpreting check 2 if it fails:
 
 ### Don't do this
 
-**Do not port-forward 443 to the proxy.** Everything above keeps the app on your own network,
-which is the point: Mantel has no authentication by design. A public DNS record pointing at a
-private IP exposes nothing. A port forward exposes your family's calendar to the internet.
+This walkthrough keeps the app on your own network. For your public domain, configure
+the trusted certificate proxy and Mantel identity handoff from [profiles.md](profiles.md)
+before allowing access. Keep the backend port private to that proxy.
 
 ---
 

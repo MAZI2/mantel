@@ -10,6 +10,7 @@ from .services.google_config import seed_from_env
 THEMES = ("midnight", "daylight", "hearth")
 
 DEFAULT_SETTINGS: dict[str, object] = {
+    "hidden_calendar_ids": [],
     "first_day_of_week": 0,  # 0=Sunday, 1=Monday
     "time_format_24h": False,
     "home_timezone": "America/New_York",

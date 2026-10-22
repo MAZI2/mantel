@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import get_settings
 from ..db import get_db
 from ..models import Calendar, Event
+from ..profile_context import current_profile
 from ..services import ics
 from ..services.crypto import feed_token, valid_feed_token
 
@@ -57,9 +58,11 @@ def _events(db: Session, calendar_id: int | None) -> tuple[list[Event], str]:
 def get_token() -> dict:
     base = get_settings().public_base_url.rstrip("/")
     token = feed_token()
+    profile_id = current_profile.get().id
     return {
         "token": token,
-        "all_calendars_url": f"{base}/api/feeds/all.ics?token={token}",
+        "profile_id": profile_id,
+        "all_calendars_url": f"{base}/api/feeds/all.ics?token={token}&profile={profile_id}",
         "hint": (
             "Subscribe to this URL in Apple Calendar, Outlook, or Home Assistant's "
             "Remote Calendar integration. Treat it like a password: anyone with the "

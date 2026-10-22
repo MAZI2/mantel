@@ -15,7 +15,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
     "",
     summary="Get app settings",
     description=(
-        "Display and behavior preferences shared by every screen in the house. Also reports "
+        "Display and behavior preferences shared by every member of this profile. Also reports "
         "read-only server facts under `server`, such as whether Google sync is configured."
     ),
 )
@@ -27,7 +27,7 @@ def get_app_settings(db: Session = Depends(get_db)) -> dict:
     values = {**DEFAULT_SETTINGS, **stored}
     # Secrets are write-only over the API. Reporting whether one is set is enough
     # for the settings screen to render, and means a stored client secret and a
-    # Home Assistant token can never be read back out of a no-auth LAN endpoint.
+    # Home Assistant token can never be read back out of a settings response.
     values[google_config.CLIENT_SECRET_KEY] = ""
     values["ha_token"] = ""
 
@@ -55,6 +55,10 @@ def get_app_settings(db: Session = Depends(get_db)) -> dict:
     ),
 )
 def update_app_settings(payload: dict, db: Session = Depends(get_db)) -> dict:
+    if "hidden_calendar_ids" in payload:
+        ids = payload["hidden_calendar_ids"]
+        if not isinstance(ids, list) or any(type(value) is not int or value < 1 for value in ids):
+            raise HTTPException(400, "hidden_calendar_ids must be a list of calendar ids.")
     unknown = set(payload) - set(DEFAULT_SETTINGS)
     if unknown:
         raise HTTPException(400, f"Unknown settings: {', '.join(sorted(unknown))}")
