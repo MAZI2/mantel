@@ -91,33 +91,51 @@ def listed(client):
 
 
 def test_imported_icloud_series_uses_its_tzid_across_dst(client, db, provider, icloud, server):
-    data = series(rrule="FREQ=WEEKLY;COUNT=3").replace(
-        "DTSTART:20260803T170000Z", "DTSTART;TZID=Europe/Ljubljana:20261021T140000"
-    ).replace("DTEND:20260803T180000Z", "DTEND;TZID=Europe/Ljubljana:20261021T150000")
+    data = (
+        series(rrule="FREQ=WEEKLY;COUNT=3")
+        .replace("DTSTART:20260803T170000Z", "DTSTART;TZID=Europe/Ljubljana:20261021T140000")
+        .replace("DTEND:20260803T180000Z", "DTEND;TZID=Europe/Ljubljana:20261021T150000")
+    )
     server.add_event("dst.ics", data)
     sync_engine.pull_calendar(db, icloud)
-    found = client.get("/api/events", params={
-        "start": "2026-10-19T00:00:00Z", "end": "2026-11-06T00:00:00Z",
-    }).json()
+    found = client.get(
+        "/api/events",
+        params={
+            "start": "2026-10-19T00:00:00Z",
+            "end": "2026-11-06T00:00:00Z",
+        },
+    ).json()
     assert [e["start_at"] for e in found] == [
-        "2026-10-21T12:00:00Z", "2026-10-28T13:00:00Z", "2026-11-04T13:00:00Z",
+        "2026-10-21T12:00:00Z",
+        "2026-10-28T13:00:00Z",
+        "2026-11-04T13:00:00Z",
     ]
     assert db.query(Event).one().recurrence_end == datetime(2026, 11, 4, 14)
 
 
 def test_imported_utc_series_is_not_treated_as_floating_local_time(
-    client, db, provider, icloud, server,
+    client,
+    db,
+    provider,
+    icloud,
+    server,
 ):
     client.patch("/api/settings", json={"home_timezone": "Europe/Ljubljana"})
-    data = series(rrule="FREQ=WEEKLY;COUNT=2").replace(
-        "20260803T170000Z", "20261021T120000Z"
-    ).replace("20260803T180000Z", "20261021T130000Z")
+    data = (
+        series(rrule="FREQ=WEEKLY;COUNT=2")
+        .replace("20260803T170000Z", "20261021T120000Z")
+        .replace("20260803T180000Z", "20261021T130000Z")
+    )
     server.add_event("utc.ics", data)
     sync_engine.pull_calendar(db, icloud)
-    found = client.get("/api/events", params={
-        "start": "2026-10-19T00:00:00Z", "end": "2026-11-01T00:00:00Z",
-        "timezone": "Europe/Ljubljana",
-    }).json()
+    found = client.get(
+        "/api/events",
+        params={
+            "start": "2026-10-19T00:00:00Z",
+            "end": "2026-11-01T00:00:00Z",
+            "timezone": "Europe/Ljubljana",
+        },
+    ).json()
     assert [e["start_at"] for e in found] == ["2026-10-21T12:00:00Z", "2026-10-28T12:00:00Z"]
     assert db.query(Event).one().timezone == "UTC"
 
@@ -176,9 +194,7 @@ def test_a_cancelled_occurrence_stops_being_shown(client, db, provider, icloud, 
 
 
 def test_several_cancelled_occurrences(client, db, provider, icloud, server):
-    server.add_event(
-        "swim.ics", series(extra="EXDATE:20260810T170000Z,20260824T170000Z\r\n")
-    )
+    server.add_event("swim.ics", series(extra="EXDATE:20260810T170000Z,20260824T170000Z\r\n"))
     sync_engine.pull_calendar(db, icloud)
 
     assert [e["start_at"][:10] for e in listed(client)] == ["2026-08-03", "2026-08-17"]
@@ -205,8 +221,11 @@ def test_a_moved_occurrence_appears_once_at_its_new_time(client, db, provider, i
     the week shows twice: at the old time from the rule, and at the new time."""
     server.add_event(
         "swim.ics",
-        series(components=override("20260810T170000Z", "Swimming (late)",
-                                   "20260810T190000Z", "20260810T200000Z")),
+        series(
+            components=override(
+                "20260810T170000Z", "Swimming (late)", "20260810T190000Z", "20260810T200000Z"
+            )
+        ),
     )
     sync_engine.pull_calendar(db, icloud)
 
@@ -221,8 +240,11 @@ def test_a_moved_occurrence_appears_once_at_its_new_time(client, db, provider, i
 def test_an_override_is_its_own_row_tied_to_the_series(client, db, provider, icloud, server):
     server.add_event(
         "swim.ics",
-        series(components=override("20260810T170000Z", "Swimming (late)",
-                                   "20260810T190000Z", "20260810T200000Z")),
+        series(
+            components=override(
+                "20260810T170000Z", "Swimming (late)", "20260810T190000Z", "20260810T200000Z"
+            )
+        ),
     )
     sync_engine.pull_calendar(db, icloud)
 
@@ -237,8 +259,11 @@ def test_moving_an_occurrence_back_removes_its_row(client, db, provider, icloud,
     there is no deletion to report. It has to be noticed by its absence."""
     href = server.add_event(
         "swim.ics",
-        series(components=override("20260810T170000Z", "Swimming (late)",
-                                   "20260810T190000Z", "20260810T200000Z")),
+        series(
+            components=override(
+                "20260810T170000Z", "Swimming (late)", "20260810T190000Z", "20260810T200000Z"
+            )
+        ),
     )
     sync_engine.pull_calendar(db, icloud)
     assert db.query(Event).count() == 2
@@ -287,8 +312,11 @@ def test_deleting_the_resource_removes_the_series_and_its_overrides(
     belonging to a series that no longer exists."""
     href = server.add_event(
         "swim.ics",
-        series(components=override("20260810T170000Z", "Swimming (late)",
-                                   "20260810T190000Z", "20260810T200000Z")),
+        series(
+            components=override(
+                "20260810T170000Z", "Swimming (late)", "20260810T190000Z", "20260810T200000Z"
+            )
+        ),
     )
     sync_engine.pull_calendar(db, icloud)
     assert db.query(Event).count() == 2
@@ -307,8 +335,7 @@ def test_an_orphan_override_is_still_shown(client, db, provider, icloud, server)
     server.add_event(
         "swim.ics",
         "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\n"
-        + override("20260810T170000Z", "Swimming (late)",
-                   "20260810T190000Z", "20260810T200000Z")
+        + override("20260810T170000Z", "Swimming (late)", "20260810T190000Z", "20260810T200000Z")
         + "END:VCALENDAR\r\n",
     )
     sync_engine.pull_calendar(db, icloud)
@@ -341,3 +368,114 @@ def test_an_unparseable_rule_does_not_lose_the_event(client, db, provider, iclou
     sync_engine.pull_calendar(db, icloud)
 
     assert db.query(Event).count() == 1
+
+
+@pytest.mark.parametrize(
+    "scope,days", [("this", ["03", "10", "24"]), ("future", ["03", "10"]), ("all", [])]
+)
+def test_scoped_deletion_survives_icloud_push_and_pull(
+    client, db, provider, icloud, server, scope, days
+):
+    href = server.add_event(
+        "swim.ics",
+        series(
+            extra="BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nDESCRIPTION:Reminder\r\nEND:VALARM\r\n"
+        ),
+    )
+    sync_engine.pull_calendar(db, icloud)
+    selected = next(event for event in listed(client) if event["start_at"].startswith("2026-08-17"))
+    assert (
+        client.delete(
+            f"/api/events/{selected['id']}",
+            params={
+                "scope": scope,
+                "occurrence_start": selected["original_start_at"],
+            },
+        ).status_code
+        == 204
+    )
+    assert [event["start_at"][8:10] for event in listed(client)] == days
+    db.expire_all()
+    assert sync_engine.push_pending(db) == 1
+    sync_engine.pull_calendar(db, icloud)
+    assert [event["start_at"][8:10] for event in listed(client)] == days
+    if scope != "all":
+        body = server.resources[href][1]
+        assert "BEGIN:VALARM" in body and "UID:swim" in body
+
+
+def test_future_deletion_removes_icloud_overrides_by_original_date(
+    client, db, provider, icloud, server
+):
+    server.add_event(
+        "swim.ics",
+        series(
+            components=(
+                override(
+                    "20260810T170000Z",
+                    "Past slot moved later",
+                    "20260825T170000Z",
+                    "20260825T180000Z",
+                )
+                + override(
+                    "20260824T170000Z",
+                    "Future slot moved earlier",
+                    "20260812T170000Z",
+                    "20260812T180000Z",
+                )
+            )
+        ),
+    )
+    sync_engine.pull_calendar(db, icloud)
+    selected = next(event for event in listed(client) if event["start_at"].startswith("2026-08-17"))
+    client.delete(
+        f"/api/events/{selected['id']}",
+        params={"scope": "future", "occurrence_start": selected["original_start_at"]},
+    )
+    assert {event["title"] for event in listed(client)} == {"Swimming", "Past slot moved later"}
+    db.expire_all()
+    sync_engine.push_pending(db)
+    sync_engine.pull_calendar(db, icloud)
+    assert {event["title"] for event in listed(client)} == {"Swimming", "Past slot moved later"}
+
+
+def test_pending_future_deletion_keeps_past_occurrences_during_full_resync(
+    client, db, provider, icloud, server
+):
+    server.add_event("swim.ics", series())
+    sync_engine.pull_calendar(db, icloud)
+    selected = listed(client)[2]
+    client.delete(
+        f"/api/events/{selected['id']}",
+        params={"scope": "future", "occurrence_start": selected["original_start_at"]},
+    )
+    db.expire_all()
+    server.expire_next_sync_token = True
+    sync_engine.pull_calendar(db, icloud)
+    assert [event["start_at"][8:10] for event in listed(client)] == ["03", "10"]
+    sync_engine.push_pending(db)
+    sync_engine.pull_calendar(db, icloud)
+    assert [event["start_at"][8:10] for event in listed(client)] == ["03", "10"]
+
+
+@pytest.mark.parametrize("scope,days", [("this", ["03", "05", "06"]), ("future", ["03"])])
+def test_all_day_scopes_survive_icloud_roundtrip(client, db, provider, icloud, server, scope, days):
+    data = (
+        series(rrule="FREQ=DAILY;COUNT=4")
+        .replace("DTSTART:20260803T170000Z", "DTSTART;VALUE=DATE:20260803")
+        .replace("DTEND:20260803T180000Z", "DTEND;VALUE=DATE:20260804")
+    )
+    server.add_event("swim.ics", data)
+    sync_engine.pull_calendar(db, icloud)
+    selected = listed(client)[1]
+    assert (
+        client.delete(
+            f"/api/events/{selected['id']}",
+            params={"scope": scope, "occurrence_start": selected["original_start_at"]},
+        ).status_code
+        == 204
+    )
+    db.expire_all()
+    sync_engine.push_pending(db)
+    sync_engine.pull_calendar(db, icloud)
+    assert [event["start_at"][8:10] for event in listed(client)] == days

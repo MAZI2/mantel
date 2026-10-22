@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from './client'
+import { useApi, type ProfileApi } from './client'
 import type {
   AppSettings,
   CalendarEvent,
@@ -7,27 +7,33 @@ import type {
   EventInput,
   LinkedAccount,
   SyncStatus,
+  ScopedEventDeletion,
   User,
   Weather,
 } from './types'
 
 export function useUsers() {
+  const api = useApi()
   return useQuery({ queryKey: ['users'], queryFn: () => api.get<User[]>('/users') })
 }
 
 export function useCalendars() {
+  const api = useApi()
   return useQuery({ queryKey: ['calendars'], queryFn: () => api.get<CalendarInfo[]>('/calendars') })
 }
 
 export function useAccounts() {
+  const api = useApi()
   return useQuery({ queryKey: ['accounts'], queryFn: () => api.get<LinkedAccount[]>('/accounts') })
 }
 
 export function useSettings() {
+  const api = useApi()
   return useQuery({ queryKey: ['settings'], queryFn: () => api.get<AppSettings>('/settings') })
 }
 
 export function useWeather() {
+  const api = useApi()
   return useQuery({
     queryKey: ['weather'],
     queryFn: () => api.get<Weather>('/weather'),
@@ -37,20 +43,25 @@ export function useWeather() {
   })
 }
 
-export function useEvents(start: Date, end: Date, userIds: number[] = []) {
+export function eventQueryOptions(api: ProfileApi, start: Date, end: Date, userIds: number[] = []) {
   const s = start.toISOString()
   const e = end.toISOString()
   // Sorted so ['1','2'] and ['2','1'] share one cache entry instead of two.
   const people = [...userIds].sort((a, b) => a - b).join(',')
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-  return useQuery({
+  return {
     queryKey: ['events', s, e, people, timezone],
     queryFn: () => {
       const params = new URLSearchParams({ start: s, end: e, timezone })
       if (people) params.set('user_ids', people)
       return api.get<CalendarEvent[]>(`/events?${params}`)
     },
-  })
+  }
+}
+
+export function useEvents(start: Date, end: Date, userIds: number[] = []) {
+  const api = useApi()
+  return useQuery(eventQueryOptions(api, start, end, userIds))
 }
 
 /** Everything that can change the calendar invalidates the same key, so every open
@@ -65,18 +76,29 @@ function useCalendarMutation<TVars, TData>(fn: (vars: TVars) => Promise<TData>) 
   })
 }
 
-export const useCreateEvent = () =>
-  useCalendarMutation((input: EventInput) => api.post<CalendarEvent>('/events', input))
+export function useCreateEvent() {
+  const api = useApi()
+  return useCalendarMutation((input: EventInput) => api.post<CalendarEvent>('/events', input))
+}
 
-export const useUpdateEvent = () =>
-  useCalendarMutation(({ id, ...patch }: Partial<EventInput> & { id: number }) =>
+export function useUpdateEvent() {
+  const api = useApi()
+  return useCalendarMutation(({ id, ...patch }: Partial<EventInput> & { id: number }) =>
     api.patch<CalendarEvent>(`/events/${id}`, patch),
   )
+}
 
-export const useDeleteEvent = () =>
-  useCalendarMutation((id: number) => api.del<void>(`/events/${id}`))
+export function useDeleteEvent() {
+  const api = useApi()
+  return useCalendarMutation((input: number | ScopedEventDeletion) => {
+    if (typeof input === 'number') return api.del<void>(`/events/${input}`)
+    const { id, ...params } = input
+    return api.del<void>(`/events/${id}?${new URLSearchParams(params)}`)
+  })
+}
 
 export function useSyncNow() {
+  const api = useApi()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => {

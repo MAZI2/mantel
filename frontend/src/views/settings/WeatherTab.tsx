@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { api } from '../../api/client'
+import { useApi } from '../../api/client'
 import { useEntityMutation, useSettings } from '../../api/hooks'
 import type { AppSettings, PlaceMatch } from '../../api/types'
 
 export function WeatherTab() {
+  const api = useApi()
   const { data: settings } = useSettings()
   const save = useEntityMutation(
     (patch: Partial<AppSettings>) => api.patch<AppSettings>('/settings', patch),

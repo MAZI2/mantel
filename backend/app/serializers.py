@@ -50,6 +50,7 @@ def event_out(ev: Event, series_color_override: str | None = None) -> EventOut:
         end_at=as_utc(ev.end_at),
         all_day=ev.all_day,
         timezone=ev.timezone,
+        original_start_at=as_utc(ev.original_start_at or ev.start_at),
         recurring=ev.recurring_event_id is not None or ev.recurrence_rule is not None,
         recurrence_rule=ev.recurrence_rule,
         recurrence_text=describe(ev.recurrence_rule),

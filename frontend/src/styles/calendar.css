@@ -1020,3 +1020,11 @@ a.btn {
     padding-right: 10px;
   }
 }
+
+.recurring-delete {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+.recurring-delete p { margin: 0; }

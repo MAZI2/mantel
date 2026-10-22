@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api, profileHref } from '../../api/client'
+import { useApi, profileHref } from '../../api/client'
 import { useCalendars, useEntityMutation, useSettings } from '../../api/hooks'
 import type { AppSettings } from '../../api/types'
 
@@ -11,6 +11,7 @@ interface FeedToken {
 }
 
 export function SharingTab() {
+  const api = useApi()
   const { data: settings } = useSettings()
   const { data: calendars = [] } = useCalendars()
   const { data: feed } = useQuery({

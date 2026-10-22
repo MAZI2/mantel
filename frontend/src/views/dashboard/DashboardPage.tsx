@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../../api/client'
+import { useApi } from '../../api/client'
 import { useEntityMutation } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
 import { EventDialog } from '../../components/EventDialog'
@@ -24,6 +24,7 @@ interface WidgetType {
 const SIZES: Widget['size'][] = ['small', 'medium', 'large']
 
 export function DashboardPage() {
+  const api = useApi()
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState(false)
   const [openEvent, setOpenEvent] = useState<CalendarEvent | null>(null)

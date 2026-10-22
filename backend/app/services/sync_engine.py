@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..models import Calendar, Event, LinkedAccount
 from ..timeutil import utcnow_naive
-from . import recurrence
+from . import event_deletions, recurrence
 from .notify import calendar_changed
 from .providers.base import (
     OCCURRENCE_SEP,
@@ -84,17 +84,13 @@ def discover_all(db: Session) -> int:
     A failure for one account must not stop the others: an expired token should
     not stop a working account from picking up its new calendars.
     """
-    accounts = db.scalars(
-        select(LinkedAccount).where(LinkedAccount.status == "active")
-    ).all()
+    accounts = db.scalars(select(LinkedAccount).where(LinkedAccount.status == "active")).all()
 
     added = 0
     for account in accounts:
         known = set(
             db.scalars(
-                select(Calendar.google_calendar_id).where(
-                    Calendar.linked_account_id == account.id
-                )
+                select(Calendar.google_calendar_id).where(Calendar.linked_account_id == account.id)
             )
         )
         try:
@@ -114,10 +110,9 @@ def pull_calendar(db: Session, cal: Calendar) -> int:
     if account is None or not cal.sync_enabled:
         return 0
 
+    pull_started = utcnow_naive()
     provider = provider_factory(db, account)
-    time_min = (
-        datetime.now(UTC) - timedelta(days=get_settings().sync_past_days)
-    ).isoformat()
+    time_min = (datetime.now(UTC) - timedelta(days=get_settings().sync_past_days)).isoformat()
 
     color_overrides: dict[str, str] = {}
     try:
@@ -150,13 +145,16 @@ def pull_calendar(db: Session, cal: Calendar) -> int:
         log.info("Sync token expired for calendar %s; doing a full resync", cal.id)
         db.execute(
             delete(Event).where(
-                Event.calendar_id == cal.id, Event.origin == account.provider
+                Event.calendar_id == cal.id,
+                Event.origin == account.provider,
+                Event.id.not_in(event_deletions.protected_masters(db, cal.id)),
             )
         )
         cal.sync_token = None
         db.commit()
         items, next_token = provider.list_events(cal.remote_id, time_min=time_min)
 
+    event_deletions.acknowledge(db, cal.id, pull_started)
     changes = 0
     for item in items:
         changes += _apply_remote_event(db, cal, item)
@@ -181,7 +179,7 @@ def pull_calendar(db: Session, cal: Calendar) -> int:
 
 
 def _apply_remote_event(db: Session, cal: Calendar, item: RemoteEvent) -> int:
-    if not item.id:
+    if not item.id or event_deletions.blocks_remote(db, cal, item):
         return 0
 
     existing = db.scalar(
@@ -208,6 +206,7 @@ def _apply_remote_event(db: Session, cal: Calendar, item: RemoteEvent) -> int:
             all_day=item.all_day,
             timezone=item.timezone,
             recurring_event_id=item.recurring_event_id,
+            original_start_at=item.original_start,
             origin=cal.account.provider,
             sync_state="synced",
             remote_updated_at=item.updated,
@@ -235,6 +234,7 @@ def _apply_remote_event(db: Session, cal: Calendar, item: RemoteEvent) -> int:
     existing.timezone = item.timezone
     existing.remote_etag = item.etag
     existing.recurring_event_id = item.recurring_event_id
+    existing.original_start_at = item.original_start
     existing.remote_updated_at = item.updated
     _apply_recurrence(existing, item)
     return 1
@@ -253,7 +253,9 @@ def _apply_recurrence(event: Event, item: RemoteEvent) -> None:
     event.recurrence_rule = item.recurrence_rule
     event.exdates = _pack_exdates(item.exdates)
     event.recurrence_end = recurrence.series_end(
-        item.recurrence_rule, event.start_at, event.end_at - event.start_at,
+        item.recurrence_rule,
+        event.start_at,
+        event.end_at - event.start_at,
         None if event.all_day else event.timezone,
     )
 
@@ -277,9 +279,7 @@ def _forget_resource(db: Session, cal: Calendar, remote_id: str) -> int:
                 Event.google_event_id == remote_id,
                 # autoescape matters: a Google id can contain '_', which LIKE would
                 # otherwise read as a wildcard and over-match.
-                Event.google_event_id.startswith(
-                    f"{remote_id}{OCCURRENCE_SEP}", autoescape=True
-                ),
+                Event.google_event_id.startswith(f"{remote_id}{OCCURRENCE_SEP}", autoescape=True),
             ),
         )
     ).all()
@@ -311,9 +311,7 @@ def _prune_stale_occurrences(db: Session, cal: Calendar, items: list[RemoteEvent
             select(Event).where(
                 Event.calendar_id == cal.id,
                 Event.sync_state == "synced",
-                Event.google_event_id.startswith(
-                    f"{resource}{OCCURRENCE_SEP}", autoescape=True
-                ),
+                Event.google_event_id.startswith(f"{resource}{OCCURRENCE_SEP}", autoescape=True),
             )
         ).all()
         for row in rows:
@@ -376,7 +374,7 @@ def push_pending(db: Session) -> int:
             db.rollback()
             cal.sync_error = str(exc)[:1000]
             db.commit()
-    return pushed
+    return pushed + event_deletions.push_pending(db, provider_factory)
 
 
 def _push_one(db: Session, cal: Calendar, event: Event) -> None:

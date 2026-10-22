@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, type VersionInfo } from '../api/client'
+import { useApi, type VersionInfo } from '../api/client'
 
 const POLL_MS = 60_000
 
@@ -18,6 +18,7 @@ export function acquireReloadGuard() {
  * so this is the only way a wall-mounted tablet picks up a new version.
  */
 export function useVersionPoll() {
+  const api = useApi()
   const [version, setVersion] = useState<string>(import.meta.env.VITE_APP_VERSION ?? 'dev')
   const [buildTime, setBuildTime] = useState<string>('')
   const [update, setUpdate] = useState<VersionInfo | null>(null)
@@ -43,6 +44,7 @@ export function useVersionPoll() {
         }
         if (info.version !== baseline.current) pendingReload.current = true
       } catch {
+        if (cancelled) return
         // Either the server is restarting mid-deploy or the network is down.
         // Either way the screen is showing stale data and should say so.
         window.dispatchEvent(new Event('famcal:unreachable'))

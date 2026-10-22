@@ -63,14 +63,10 @@ def validate(rule: str) -> str:
     if not text:
         raise RecurrenceError("Empty recurrence rule")
 
-    parts = dict(
-        piece.split("=", 1) for piece in text.split(";") if "=" in piece
-    )
+    parts = dict(piece.split("=", 1) for piece in text.split(";") if "=" in piece)
     freq = parts.get("FREQ")
     if freq not in FREQUENCIES:
-        raise RecurrenceError(
-            f"Unsupported FREQ={freq!r}. Use DAILY, WEEKLY, MONTHLY or YEARLY."
-        )
+        raise RecurrenceError(f"Unsupported FREQ={freq!r}. Use DAILY, WEEKLY, MONTHLY or YEARLY.")
 
     # Parse it for real so a malformed BYDAY/UNTIL is caught at write time rather
     # than blowing up inside a calendar query later.
@@ -220,6 +216,7 @@ def materialise(
             location=event.location,
             color_override=event.color_override,
             remote_color=event.remote_color,
+            original_start_at=start,
             start_at=start,
             end_at=start + duration,
             all_day=event.all_day,
@@ -255,8 +252,13 @@ def describe(rule: str | None) -> str | None:
 
     if freq == "WEEKLY" and parts.get("BYDAY"):
         names = {
-            "MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu",
-            "FR": "Fri", "SA": "Sat", "SU": "Sun",
+            "MO": "Mon",
+            "TU": "Tue",
+            "WE": "Wed",
+            "TH": "Thu",
+            "FR": "Fri",
+            "SA": "Sat",
+            "SU": "Sun",
         }
         days = [names.get(d, d) for d in parts["BYDAY"].split(",")]
         text += " on " + ", ".join(days)
@@ -278,3 +280,11 @@ def next_occurrence_after(event: Event, moment: datetime) -> datetime | None:
     """First start time at or after `moment`, for countdowns and reminders."""
     found = occurrences(event, moment, moment + timedelta(days=365 * 3))
     return found[0] if found else None
+
+
+def truncate_rule(rule: str, cutoff: datetime, all_day: bool = False) -> str:
+    """UNTIL is inclusive, so stop immediately before the selected original slot."""
+    last = cutoff - timedelta(days=1) if all_day else cutoff - timedelta(seconds=1)
+    until = last.strftime("%Y%m%d" if all_day else "%Y%m%dT%H%M%SZ")
+    parts = [part for part in rule.split(";") if not part.startswith(("COUNT=", "UNTIL="))]
+    return ";".join([*parts, f"UNTIL={until}"])

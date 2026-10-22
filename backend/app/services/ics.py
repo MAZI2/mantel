@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from ..models import Event
 from ..profile_context import current_profile
 from ..timeutil import utcnow_naive
+from .recurrence import excluded_starts
 
 PRODID = "-//Family Calendar//EN"
 LINE_LIMIT = 75
@@ -95,6 +96,12 @@ def event_lines(event: Event) -> list[str]:
         lines.append(f"LOCATION:{_escape(event.location)}")
     if event.recurrence_rule:
         lines.append(f"RRULE:{event.recurrence_rule}")
+        for excluded in sorted(excluded_starts(event)):
+            lines.append(
+                f"EXDATE;VALUE=DATE:{_date(excluded)}"
+                if event.all_day
+                else f"EXDATE:{_stamp(excluded)}"
+            )
     lines.append("END:VEVENT")
     return lines
 

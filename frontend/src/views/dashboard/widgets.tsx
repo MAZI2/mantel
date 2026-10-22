@@ -1,7 +1,7 @@
 import { addDays, format, isSameDay, isSameMonth, startOfMonth, startOfWeek } from 'date-fns'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../../api/client'
+import { useApi } from '../../api/client'
 import { useEntityMutation, useEvents, useUsers, useWeather } from '../../api/hooks'
 import type { SharedList } from '../../api/types'
 import type { CalendarEvent } from '../../api/types'
@@ -201,6 +201,7 @@ function Note({ config, onConfigChange }: WidgetProps) {
 // --------------------------------- List --------------------------------------
 
 function ListWidget({ config }: WidgetProps) {
+  const api = useApi()
   const listId = num(config, 'list_id', 0)
   const hideChecked = config.hide_checked === true
   const [text, setText] = useState('')

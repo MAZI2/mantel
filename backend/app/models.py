@@ -160,6 +160,8 @@ class Event(TimestampMixin, Base):
     all_day: Mapped[bool] = mapped_column(Boolean, default=False)
     timezone: Mapped[str | None] = mapped_column(String(64))
 
+    # Original slot of a moved occurrence; deletion scopes use this, not its new time.
+    original_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recurrence_rule: Mapped[str | None] = mapped_column(Text)
     recurring_event_id: Mapped[str | None] = mapped_column(String(1024))
     # Occurrences of `recurrence_rule` that must not be rendered, as comma-separated
@@ -209,6 +211,21 @@ class Event(TimestampMixin, Base):
     @remote_etag.setter
     def remote_etag(self, value: str | None) -> None:
         self.google_etag = value
+
+
+class EventDeletion(Base):
+    """Durable scoped deletions, retained until a fresh pull confirms the remote write."""
+
+    __tablename__ = "event_deletions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    calendar_id: Mapped[int] = mapped_column(ForeignKey("calendars.id", ondelete="CASCADE"))
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("events.id", ondelete="SET NULL"))
+    remote_id: Mapped[str | None] = mapped_column(String(1024))
+    series_id: Mapped[str | None] = mapped_column(String(1024))
+    scope: Mapped[str | None] = mapped_column(String(16))
+    occurrence_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    all_day: Mapped[bool | None] = mapped_column(Boolean)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DashboardWidget(TimestampMixin, Base):

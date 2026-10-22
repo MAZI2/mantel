@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, profileHref } from '../../api/client'
+import { useApi, profileHref } from '../../api/client'
 import { providerLabel } from '../../api/providers'
 import { groupCalendarsBySource } from './groupCalendars'
 import { useCalendars, useEntityMutation, useSettings, useUsers } from '../../api/hooks'
@@ -84,6 +84,7 @@ export function SettingsPage() {
 }
 
 function PeopleTab() {
+  const api = useApi()
   const { data: users = [] } = useUsers()
   const [name, setName] = useState('')
 
@@ -168,6 +169,7 @@ interface CalendarSyncStatus {
 }
 
 function CalendarsTab() {
+  const api = useApi()
   const { data: calendars = [] } = useCalendars()
   const { data: users = [] } = useUsers()
   // Only for the "synced 5 min ago" / error hints beside each Syncing toggle --
@@ -334,6 +336,7 @@ function CalendarsTab() {
 }
 
 function DisplayTab() {
+  const api = useApi()
   const { data: settings } = useSettings()
   const save = useEntityMutation(
     (patch: Partial<AppSettings>) => api.patch<AppSettings>('/settings', patch),

@@ -71,7 +71,19 @@ checks, commit the agreed changes, then run `./local.sh clean`. This removes onl
 does not prune Docker globally or touch other projects. These scripts stay in the repo
 for the next round. The Raspberry Pi deployment commands stay the same.
 
-The Display tab's colour theme is personal to the signed-in person and follows
-them across profiles; all other settings remain shared within each profile.
+The Display tab's colour theme is personal to the signed-in person within the selected
+profile; all other settings remain shared within each profile.
 Administrators can remove people in Settings → Profiles without deleting any
 profile events, connections or settings.
+
+Deleting a repeating event opens three choices: **This event only**, **This and
+all future events**, or **All events in this series**. Both the quick popup and
+edit form offer them. The selected original occurrence determines the boundary,
+including events moved to another date and weeks across daylight-saving changes.
+Google/iCloud deletions are queued for sync and retried after connection failures.
+
+Profile switches do not reload the document. The next profile is displayed only
+after its settings, accounts, calendars and current-week events have loaded.
+Its theme, scale and starting scroll position apply before the calendar is painted.
+Week navigation retains the last complete week while the requested one loads;
+an unsuccessful request offers Retry instead of clearing the schedule.

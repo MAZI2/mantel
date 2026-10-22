@@ -123,7 +123,8 @@ class EventBase(BaseModel):
         description="All-day events span whole calendar days; times are ignored for display.",
     )
     timezone: str | None = Field(
-        default=None, examples=["Europe/Ljubljana"],
+        default=None,
+        examples=["Europe/Ljubljana"],
         description="IANA timezone used to keep recurring events at the same local hour.",
     )
     _timezone_valid = field_validator("timezone")(validate_timezone)
@@ -196,6 +197,7 @@ class EventOut(BaseModel):
     end_at: datetime
     all_day: bool
     timezone: str | None
+    original_start_at: datetime | None = None
     recurring: bool = Field(description="True if this instance came from a recurring series.")
     recurrence_rule: str | None = Field(
         default=None, description="The series' RRULE, when this app owns the recurrence."

@@ -25,7 +25,7 @@ from icalendar import Event as IEvent
 from icalendar import Timezone as ITimezone
 
 from ..caldav_client import CalDavClient
-from ..recurrence import with_utc_until
+from ..recurrence import truncate_rule, with_utc_until
 from .base import OCCURRENCE_SEP, ProviderError, RemoteCalendar, RemoteEvent
 
 log = logging.getLogger(__name__)
@@ -149,13 +149,19 @@ class ICloudProvider:
             start=start,
             end=end,
             all_day=all_day,
-            timezone=None if all_day else (
-                _tzid_of(start_prop) or
-                (self._tz.key if raw_start.tzinfo is None else
-                 getattr(raw_start.tzinfo, "key", "UTC"))
+            timezone=None
+            if all_day
+            else (
+                _tzid_of(start_prop)
+                or (
+                    self._tz.key
+                    if raw_start.tzinfo is None
+                    else getattr(raw_start.tzinfo, "key", "UTC")
+                )
             ),
             recurrence_rule=_rrule_of(component),
             recurring_event_id=recurring_event_id,
+            original_start=self._naive_utc(_dt_of(component.get("RECURRENCE-ID"))),
             exdates=[self._naive_utc(d) for d in _exdates_of(component)],
             updated=self._naive_utc(
                 _dt_of(component.get("LAST-MODIFIED")) or _dt_of(component.get("DTSTAMP"))
@@ -255,6 +261,53 @@ class ICloudProvider:
         _exclude(master, component, occurrence)
         self._write(url, calendar, resource.etag)
 
+    def original_start(self, calendar_id: str, remote_id: str) -> datetime | None:
+        _, occurrence = _split_id(remote_id)
+        return self._naive_utc(_parse_occurrence_key(occurrence)) if occurrence else None
+
+    def delete_recurrence(
+        self,
+        calendar_id: str,
+        remote_id: str,
+        series_id: str,
+        occurrence_start: datetime,
+        scope: str,
+        all_day: bool,
+    ) -> None:
+        collection = self._collection(calendar_id)
+        name = series_id.split(OCCURRENCE_SEP, 1)[0]
+        url = self._dav.resolve(collection, name)
+        resource = self._dav.get(url)
+        if scope == "all":
+            self._dav.delete(url, resource.etag)
+            return
+        if scope == "this":
+            moment = occurrence_start.date() if all_day else occurrence_start.replace(tzinfo=UTC)
+            self.delete_event(calendar_id, f"{name}{OCCURRENCE_SEP}{_occurrence_key(moment)}")
+            return
+        calendar = ICalendar.from_ical(resource.data)
+        master = _component_for(calendar, None)
+        if master is None or occurrence_start <= self._naive_utc(master["DTSTART"].dt):
+            self._dav.delete(url, resource.etag)
+            return
+        rule = _rrule_of(master)
+        if not rule:
+            raise ProviderError(
+                409, "The iCloud series no longer has a repeat rule. Sync and try again."
+            )
+        master.pop("RRULE", None)
+        master.add("rrule", _vrecur(truncate_rule(rule, occurrence_start, all_day)))
+        for component in list(calendar.walk("VEVENT")):
+            original = _dt_of(component.get("RECURRENCE-ID"))
+            if original is not None and self._naive_utc(original) >= occurrence_start:
+                calendar.subcomponents.remove(component)
+        rdates = _exdates_of_property(master, "RDATE")
+        master.pop("RDATE", None)
+        for value in rdates:
+            if self._naive_utc(value) < occurrence_start:
+                master.add("rdate", value)
+        self._write(url, calendar, resource.etag)
+
     # -------------------------------- helpers --------------------------------
 
     def _write(self, url: str, calendar: ICalendar, etag: str | None) -> str | None:
@@ -315,7 +368,11 @@ def _rrule_of(component) -> str | None:
 
 
 def _exdates_of(component) -> list:
-    raw = component.get("EXDATE")
+    return _exdates_of_property(component, "EXDATE")
+
+
+def _exdates_of_property(component, name: str) -> list:
+    raw = component.get(name)
     if raw is None:
         return []
     groups = raw if isinstance(raw, list) else [raw]
@@ -368,7 +425,7 @@ def _exclude(master, removed, occurrence: str) -> None:
 
     existing = _exdates_of(master)
     master.pop("EXDATE", None)
-    for value in [*existing, moment]:
+    for value in dict.fromkeys([*existing, moment]):
         master.add("exdate", value)
 
 
@@ -461,8 +518,10 @@ def _apply(component, event: RemoteEvent) -> None:
         component.add("dtend", event.end.replace(tzinfo=UTC).astimezone(tz))
 
     if event.recurrence_rule:
-        rule = event.recurrence_rule if event.all_day else with_utc_until(
-            event.recurrence_rule, event.timezone
+        rule = (
+            event.recurrence_rule
+            if event.all_day
+            else with_utc_until(event.recurrence_rule, event.timezone)
         )
         component.add("rrule", _vrecur(rule))
 

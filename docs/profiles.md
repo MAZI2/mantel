@@ -53,8 +53,9 @@ it and assign it explicitly. An enabled person without memberships sees a
 
 The bottom row shows only the person's assigned active profiles, followed by
 Settings on the right. Opening `/` uses their default profile. A `?profile=<id>`
-link selects an assigned profile directly. Switching profiles reloads the app to
-keep queries and pending edits separate. The top calendar dropdown controls
+link selects an assigned profile directly. Switching profiles stays within the app,
+with a fresh query cache and requests bound to the selected profile. Its settings,
+calendar and appearance are loaded before revealing the new view. The top calendar dropdown controls
 multiple calendars at once; those choices are saved with the profile and shared
 by its members.
 
@@ -69,10 +70,13 @@ may seed fresh defaults; connected account tokens are never copied.
 
 All members can edit everything inside a shared profile. The colour theme is the
 exception: the existing **Settings → Display → Colour theme** control saves to the
-signed-in person's preferences and follows that person across profiles and devices.
-Other members keep their own theme. On first use after upgrading, the person's
-previous default-profile theme seeds this preference; later theme changes never
-change the shared profile settings. Personal preferences live in the access registry.
+signed-in person's preferences for the selected profile, across devices.
+Other members keep their own theme, and each person can choose different themes
+for different profiles. On upgrade, the previous personal theme seeds each profile;
+where no personal theme exists, that profile's old theme seeds the preference.
+Later theme changes never change shared settings or another profile's appearance.
+Personal preferences live in the access registry. Tapping Settings while it is open
+returns to the selected profile's week calendar.
 
 The calendar toolbar shows **Sync now** only while the selected profile has a
 linked Google account. An iCloud-only or local-only profile has no toolbar sync

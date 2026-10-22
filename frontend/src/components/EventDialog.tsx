@@ -1,9 +1,10 @@
+import { RecurringDeleteChoices } from './RecurringDeleteChoices'
 import { format, isSameDay } from 'date-fns'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useCalendars, useDeleteEvent, useSettings, useUsers } from '../api/hooks'
 import { calendarLabel } from '../api/providers'
-import type { CalendarEvent } from '../api/types'
+import type { CalendarEvent, DeletionScope } from '../api/types'
 import { acquireReloadGuard } from '../hooks/useVersionPoll'
 import { allDayInput } from './eventTimes'
 import { EventModal } from './EventModal'
@@ -33,6 +34,7 @@ function EventDetails({ event, onEdit, onClose }: {
   const { data: calendars = [] } = useCalendars()
   const { data: users = [] } = useUsers()
   const remove = useDeleteEvent()
+  const [choosingDelete, setChoosingDelete] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const card = useRef<HTMLDivElement>(null)
   const close = useRef<HTMLButtonElement>(null)
@@ -75,10 +77,13 @@ function EventDetails({ event, onEdit, onClose }: {
     }
   }
 
-  const destroy = async () => {
+  const destroy = async (scope?: DeletionScope) => {
     setError(null)
     try {
-      await remove.mutateAsync(event.id)
+      await remove.mutateAsync(scope ? {
+        id: event.id, scope, occurrence_start: event.original_start_at || event.start_at,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      } : event.id)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not delete the event.')
@@ -106,9 +111,11 @@ function EventDetails({ event, onEdit, onClose }: {
         {!event.editable && <p className="modal__note">This calendar is read-only.</p>}
         {error && <p className="modal__error" role="alert">{error}</p>}
 
-        {event.editable && (
+        {event.editable && choosingDelete && <RecurringDeleteChoices busy={busy}
+          onChoose={(scope) => void destroy(scope)} onCancel={() => setChoosingDelete(false)} />}
+        {event.editable && !choosingDelete && (
           <div className="modal__actions">
-            <button className="btn btn--danger" onClick={destroy} disabled={busy}>
+            <button className="btn btn--danger" onClick={() => event?.recurring ? setChoosingDelete(true) : void destroy()} disabled={busy}>
               {busy ? 'Deleting…' : 'Delete'}
             </button>
             <div className="modal__spacer" />

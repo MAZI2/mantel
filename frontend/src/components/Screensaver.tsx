@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { addDays, format } from 'date-fns'
 import { useEffect, useState } from 'react'
-import { api } from '../api/client'
+import { useApi } from '../api/client'
 import { useEvents, useSettings } from '../api/hooks'
 import type { Photo } from '../api/types'
 import { useIdle, useSleepWindow } from '../hooks/useIdle'
@@ -15,6 +15,7 @@ import { usePhoneViewport } from '../hooks/usePhoneViewport'
  * screen should never also press a button underneath it.
  */
 export function Screensaver() {
+  const api = useApi()
   const { data: settings } = useSettings()
   // A phone already has a lock screen, and nobody glances at one from the doorway.
   // Blanking it over a calendar somebody is reading is just something to dismiss.

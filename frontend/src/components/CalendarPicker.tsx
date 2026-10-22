@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api/client'
+import { useApi } from '../api/client'
 import { useCalendars, useSettings } from '../api/hooks'
 import { calendarLabel } from '../api/providers'
 import type { AppSettings } from '../api/types'
 
 export function CalendarPicker() {
+  const api = useApi()
   const { data: calendars = [] } = useCalendars()
   const { data: settings } = useSettings()
   const qc = useQueryClient()

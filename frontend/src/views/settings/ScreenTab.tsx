@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
-import { api, profileHref } from '../../api/client'
+import { useApi } from '../../api/client'
 import { useEntityMutation, useSettings } from '../../api/hooks'
 import type { AppSettings, Photo } from '../../api/types'
 
 export function ScreenTab() {
+  const api = useApi()
   const { data: settings } = useSettings()
   const save = useEntityMutation(
     (patch: Partial<AppSettings>) => api.patch<AppSettings>('/settings', patch),
@@ -139,6 +140,7 @@ export function ScreenTab() {
 }
 
 function PhotoLibrary() {
+  const api = useApi()
   const qc = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -160,12 +162,10 @@ function PhotoLibrary() {
     for (const file of Array.from(files)) {
       const body = new FormData()
       body.append('file', file)
-      // Not the shared api client: this is multipart, and setting a JSON
-      // Content-Type here would strip the multipart boundary.
-      const res = await fetch(profileHref('/api/photos'), { method: 'POST', body })
-      if (!res.ok) {
-        const detail = await res.json().catch(() => null)
-        failures.push(`${file.name}: ${detail?.error?.message ?? res.statusText}`)
+      try {
+        await api.upload('/photos', body)
+      } catch (error) {
+        failures.push(`${file.name}: ${error instanceof Error ? error.message : 'Upload failed'}`)
       }
     }
 

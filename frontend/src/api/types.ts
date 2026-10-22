@@ -67,6 +67,7 @@ export interface CalendarEvent {
   end_at: string
   all_day: boolean
   timezone: string | null
+  original_start_at?: string | null
   recurring: boolean
   recurrence_rule: string | null
   recurrence_text: string | null
@@ -200,4 +201,12 @@ export interface AppSettings {
     sync_enabled: boolean
     sync_interval_seconds: number
   }
+}
+
+export type DeletionScope = 'this' | 'all' | 'future'
+export interface ScopedEventDeletion {
+  id: number
+  scope: DeletionScope
+  occurrence_start: string
+  timezone: string
 }

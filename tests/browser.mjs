@@ -37,11 +37,41 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
       recurring: false, origin: 'local', sync_state: 'synced',
     }] : []) })
   })
+  await page.addInitScript(() => {
+    const sample = () => {
+      const grid = document.querySelector('.timegrid__body')
+      const slot = document.querySelector('.timegrid__slot')
+      if (grid && slot && !document.documentElement.hasAttribute('data-booting')) {
+        window.firstCalendarFrame = {
+          theme: document.documentElement.dataset.theme,
+          scale: document.documentElement.dataset.scale,
+          slots: document.querySelectorAll('.timegrid__slot').length,
+          hourHeight: slot.getBoundingClientRect().height,
+          allDay: !!document.querySelector('.timegrid__allday'),
+          scrollTop: grid.scrollTop,
+          maxScroll: grid.scrollHeight - grid.clientHeight,
+        }
+      } else requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  })
   await page.goto(path)
   await page.waitForFunction(({ scale, weekStartsOn, dayStartHour, dayEndHour }) => document.documentElement.dataset.scale === scale &&
     document.querySelectorAll('.timegrid__slot').length === (dayEndHour - dayStartHour) * 7 &&
     document.querySelector('.timegrid__dayname')?.textContent === (weekStartsOn === 1 ? 'Mon' : 'Sun'),
     { scale, weekStartsOn, dayStartHour, dayEndHour })
+  await page.waitForFunction(() => !!window.firstCalendarFrame)
+  const first = await page.evaluate(() => window.firstCalendarFrame)
+  assert.equal(first.theme, savedSettings.theme, 'first calendar frame used the wrong theme')
+  assert.equal(first.scale, scale, 'first calendar frame used fallback sizing')
+  assert.equal(first.slots, (dayEndHour - dayStartHour) * 7, 'first calendar frame used fallback hours')
+  assert.equal(first.allDay, fixtureEvents ? fixtureEvents.some((e) => e.all_day) : allDay,
+    'the all-day row arrived after the first calendar frame')
+  const height = 32 * { normal: 1, large: 1.2, wall: 1.45 }[scale]
+  assert.ok(Math.abs(first.hourHeight - height) < 0.1)
+  const hour = await page.evaluate(() => new Date().getHours())
+  const expectedScroll = Math.min(first.maxScroll, Math.max(0, (hour - dayStartHour - 1) * height))
+  assert.ok(Math.abs(first.scrollTop - expectedScroll) <= 1, 'initial scroll position changed after paint')
   return { context, page, eventRanges }
 }
 
@@ -691,12 +721,74 @@ try {
     await context.close()
   }
   console.log('PASS: automatic week rollover for Sunday/Monday, DST, year boundary and wake after missed weeks')
+  for (const [viewport, scope, expected] of [
+    [{ width: 390, height: 844 }, 'this', ['2026-10-21', '2026-11-04', '2026-11-11']],
+    [{ width: 1280, height: 720 }, 'future', ['2026-10-21']],
+    [{ width: 390, height: 844 }, 'all', []],
+  ]) {
+    const { context, page } = await open({ viewport })
+    let calendarId
+    try {
+      const calendar = await context.request.post('/api/calendars', { data: { name: 'Recurring deletion browser test' } })
+      calendarId = (await calendar.json()).id
+      const response = await context.request.post('/api/events', { data: {
+        calendar_id: calendarId, title: 'Recurring deletion', start_at: '2026-10-21T12:00:00Z',
+        end_at: '2026-10-21T13:00:00Z', timezone: 'Europe/Ljubljana', recurrence_rule: 'FREQ=WEEKLY;COUNT=4',
+      } })
+      const event = await response.json()
+      assert.equal(response.status(), 201)
+      await context.unroute('**/api/events?*')
+      await page.reload()
+      await page.getByRole('button', { name: 'Next week', exact: true }).click()
+      const block = page.locator('.event-block').filter({ hasText: 'Recurring deletion' })
+      await block.click()
+      if (scope === 'all') await page.getByRole('button', { name: 'Edit', exact: true }).click()
+      await page.getByRole('button', { name: 'Delete', exact: true }).click()
+      const choices = page.getByRole('group', { name: 'Delete repeating event', exact: true })
+      await choices.waitFor()
+      let deleted = 0
+      context.on('request', (request) => { if (request.method() === 'DELETE' && new URL(request.url()).pathname === `/api/events/${event.id}`) deleted += 1 })
+      await choices.getByRole('button', { name: 'Cancel', exact: true }).click()
+      assert.equal(deleted, 0, 'opening or cancelling choices must not delete anything')
+      await page.getByRole('button', { name: 'Delete', exact: true }).click()
+      const label = { this: 'This event only', future: 'This and all future events', all: 'All events in this series' }[scope]
+      if (scope === 'this') {
+        await context.route(`**/api/events/${event.id}?*`, (route) => {
+          if (route.request().method() !== 'DELETE') return route.continue()
+          return route.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Please retry this deletion' } } })
+        }, { times: 1 })
+        await choices.getByRole('button', { name: label, exact: true }).click()
+        await page.getByRole('alert').filter({ hasText: 'Please retry this deletion' }).waitFor()
+      }
+      const removed = page.waitForResponse((r) => r.request().method() === 'DELETE' && new URL(r.url()).pathname === `/api/events/${event.id}` && r.status() === 204)
+      await choices.getByRole('button', { name: label, exact: true }).click()
+      const request = (await removed).request()
+      const params = new URL(request.url()).searchParams
+      assert.equal(params.get('scope'), scope)
+      assert.equal(params.get('occurrence_start'), '2026-10-28T13:00:00Z')
+      await page.locator('.modal').waitFor({ state: 'hidden' })
+      await block.waitFor({ state: 'hidden' })
+      await page.reload()
+      await page.getByRole('button', { name: 'Next week', exact: true }).click()
+      await titleIs(page, 'Oct 26 – Nov 1, 2026')
+      await page.locator('.calpage__loading').waitFor({ state: 'hidden' })
+      assert.equal(await block.count(), 0)
+      const remaining = await (await context.request.get('/api/events?start=2026-10-01T00:00:00Z&end=2026-12-01T00:00:00Z')).json()
+      assert.deepEqual(remaining.filter((e) => e.calendar_id === calendarId).map((e) => e.start_at.slice(0, 10)), expected)
+    } finally {
+      if (calendarId) await context.request.delete(`/api/calendars/${calendarId}`)
+      await context.close()
+    }
+  }
+  console.log('PASS: all three recurring deletion scopes work from details and editor, with cancellation, retry, reload and DST-safe occurrence dates')
+
   // Real isolated databases, two authenticated people and the administrator UI.
   const admin = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' })
   const adminPage = await admin.newPage()
   adminPage.on('pageerror', (e) => errors.push(e.message))
   const adminSession = await (await admin.request.get('/api/session')).json()
   const personalId = adminSession.default_profile_id
+  await admin.request.patch(`/api/settings?profile=${personalId}`, { data: { theme: 'midnight' } })
   const sharedName = `Shared browser ${Date.now()}`
   const partnerIdentity = `partner-${Date.now()}`
   const partnerName = `Browser partner ${Date.now()}`
@@ -717,15 +809,74 @@ try {
     await addPerson.getByRole('button', { name: 'Add person', exact: true }).click()
     await adminPage.getByRole('form', { name: `Access for ${partnerName}`, exact: true }).waitFor()
     const sharedSettings = await (await admin.request.patch(`/api/settings?profile=${sharedId}`, { data: { theme: 'daylight', day_start_hour: 7 } })).json()
+    // Hold the target profile's events back: its theme and calendar must appear together.
+    await adminPage.evaluate(() => { window.profileDocumentMarker = 'same-document' })
+    const previousTheme = await adminPage.evaluate(() => document.documentElement.dataset.theme)
+    let releaseEvents
+    const eventGate = new Promise((resolve) => { releaseEvents = resolve })
+    const delayEvents = async (route) => {
+      if (route.request().headers()['x-mantel-profile'] === sharedId) {
+        const response = await route.fetch()
+        await eventGate
+        try { await route.fulfill({ response }) } catch { /* A rapid switch can cancel the request. */ }
+      } else await route.continue()
+    }
+    await admin.route('**/api/events?*', delayEvents)
     await adminPage.getByRole('button', { name: sharedName, exact: true }).click()
+    await adminPage.locator('.shell[aria-busy=true]').waitFor()
+    assert.equal(await adminPage.locator('.timegrid').count(), 0)
+    assert.equal(await adminPage.evaluate(() => document.documentElement.dataset.theme), previousTheme)
+    assert.equal(await adminPage.evaluate(() => window.profileDocumentMarker), 'same-document')
+    releaseEvents()
     await adminPage.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    await adminPage.locator('.timegrid').waitFor()
+    await admin.unroute('**/api/events?*', delayEvents)
+    assert.equal(await adminPage.evaluate(() => window.profileDocumentMarker), 'same-document')
     assert.equal(new URL(adminPage.url()).searchParams.get('profile'), sharedId)
     assert.equal(await adminPage.locator('.timegrid__slot').count(), (sharedSettings.day_end_hour - 7) * 7)
-    await adminPage.getByRole('link', { name: 'Settings', exact: true }).click()
-    assert.equal(new URL(adminPage.url()).searchParams.get('profile'), sharedId)
-    await adminPage.getByRole('button', { name: sharedName, exact: true }).click()
-    await adminPage.locator('.timegrid__dayhead').first().waitFor()
+    let releaseWeek
+    const weekGate = new Promise((resolve) => { releaseWeek = resolve })
+    const previousWeek = await adminPage.locator('h1').textContent()
+    const delayWeek = async (route) => {
+      const response = await route.fetch()
+      await weekGate
+      await route.fulfill({ response })
+    }
+    await admin.route('**/api/events?*', delayWeek)
+    await adminPage.getByRole('button', { name: 'Next week', exact: true }).click()
+    await adminPage.locator('.calpage__loading').waitFor()
+    assert.equal(await adminPage.locator('h1').textContent(), previousWeek)
     assert.equal(await adminPage.locator('.timegrid__dayhead').count(), 7)
+    releaseWeek()
+    await adminPage.waitForFunction((title) => document.querySelector('h1')?.textContent !== title, previousWeek)
+    await admin.unroute('**/api/events?*', delayWeek)
+    await adminPage.getByRole('button', { name: 'Today', exact: true }).click()
+    await adminPage.waitForFunction((title) => document.querySelector('h1')?.textContent === title, previousWeek)
+    // Browser history and quick repeated switches must finish on the final profile.
+    await adminPage.getByRole('button', { name: 'Personal', exact: true }).click()
+    await adminPage.getByRole('button', { name: sharedName, exact: true }).click()
+    await adminPage.locator('.timegrid').waitFor()
+    await adminPage.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    await adminPage.goBack()
+    await adminPage.waitForFunction(() => document.documentElement.dataset.theme === 'midnight')
+    await adminPage.goForward()
+    await adminPage.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    assert.equal(await adminPage.evaluate(() => window.profileDocumentMarker), 'same-document')
+    // The existing Settings link toggles back to the selected profile, from any tab.
+    for (const width of [390, 1280]) {
+      await adminPage.setViewportSize({ width, height: 844 })
+      const settingsLink = adminPage.getByRole('link', { name: 'Settings', exact: true })
+      await settingsLink.click()
+      await adminPage.getByRole('button', { name: 'Display', exact: true }).click()
+      assert.equal(new URL(adminPage.url()).searchParams.get('profile'), sharedId)
+      assert.equal(await settingsLink.getAttribute('aria-current'), 'page')
+      await settingsLink.click()
+      await adminPage.locator('.timegrid__dayhead').first().waitFor()
+      assert.equal(new URL(adminPage.url()).pathname, '/calendar/week')
+      assert.equal(new URL(adminPage.url()).searchParams.get('profile'), sharedId)
+      assert.equal(await settingsLink.getAttribute('aria-current'), null)
+      assert.equal(await adminPage.locator('.timegrid__dayhead').count(), 7)
+    }
     await adminPage.goto('/')
     await adminPage.waitForURL(`**/calendar/week?profile=${personalId}`)
     await adminPage.locator('.profile-nav button[aria-pressed=true]').waitFor()
@@ -758,13 +909,20 @@ try {
     // The same browser can authenticate as another person without sharing its theme cache.
     await partner.setExtraHTTPHeaders({ 'X-Mantel-Identity': 'local-admin', 'X-Mantel-Proxy-Secret': 'local-preview-identity-testing-only' })
     await page.goto('/')
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'midnight')
+    assert.equal(await page.evaluate((id) => localStorage.getItem(`mantel.theme:local-admin:${id}`), personalId), 'midnight')
+    await page.getByRole('button', { name: sharedName, exact: true }).click()
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
-    assert.equal(await page.evaluate(() => localStorage.getItem('mantel.theme:local-admin')), 'daylight')
+    assert.equal(await page.evaluate((id) => localStorage.getItem(`mantel.theme:local-admin:${id}`), sharedId), 'daylight')
+    await page.reload()
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'daylight')
+    await page.getByRole('button', { name: 'Personal', exact: true }).click()
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'midnight')
     await partner.setExtraHTTPHeaders({ 'X-Mantel-Identity': partnerIdentity, 'X-Mantel-Proxy-Secret': 'local-preview-identity-testing-only' })
     await page.goto('/')
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'hearth')
-    assert.equal(await page.evaluate((id) => localStorage.getItem(`mantel.theme:${id}`), partnerIdentity), 'hearth')
-    await page.goto(`/?profile=${personalId}`)
+    assert.equal(await page.evaluate(([identity, profile]) => localStorage.getItem(`mantel.theme:${identity}:${profile}`), [partnerIdentity, sharedId]), 'hearth')
+    await page.goto(`/calendar/week?profile=${personalId}`)
     await page.getByRole('alert').filter({ hasText: 'not available' }).waitFor()
     await page.goto('/')
     await page.waitForURL(`**/calendar/week?profile=${sharedId}`)
@@ -782,7 +940,7 @@ try {
     await partner?.close()
     await admin.close()
   }
-  console.log('PASS: administrator creates profiles and memberships; two people get independent defaults and personal themes, shared settings, person removal and enforced access')
+  console.log('PASS: administrator creates profiles and memberships; two people get independent defaults and themes per person/profile, Settings toggle, shared settings, person removal and enforced access')
 
   assert.deepEqual(errors, [], 'browser JavaScript errors')
 } finally {

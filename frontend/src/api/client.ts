@@ -1,3 +1,5 @@
+import { createContext, useContext } from 'react'
+
 export class ApiError extends Error {
   constructor(
     public code: string,
@@ -16,10 +18,6 @@ export function selectProfile(identity: string, profileId: string) {
   activeProfileId = profileId
 }
 
-export function profileHeaders(): Record<string, string> {
-  return activeProfileId ? { 'X-Mantel-Profile': activeProfileId } : {}
-}
-
 export function profileHref(path: string, id = activeProfileId): string {
   const url = new URL(path, window.location.origin)
   if (id) url.searchParams.set('profile', id)
@@ -30,14 +28,18 @@ export function profileStorageKey(key: string): string {
   return activeProfileId ? `${key}:${activeIdentity}:${activeProfileId}` : key
 }
 
-export function personalStorageKey(key: string): string {
-  return `${key}:${activeIdentity}`
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  profileId: string, signal: AbortSignal | undefined, path: string, init?: RequestInit,
+): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...profileHeaders(), ...(init?.headers ?? {}) },
+    signal,
+    cache: 'no-store',
+    headers: {
+      ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(profileId ? { 'X-Mantel-Profile': profileId } : {}),
+      ...(init?.headers ?? {}),
+    },
   })
   if (!res.ok) {
     let code = 'error'
@@ -51,18 +53,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(code, message, res.status)
   }
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+  const data = res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+  signal?.throwIfAborted()
+  return data
 }
 
-export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) }),
-  patch: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  put: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+/** Each mounted profile owns its client. Delayed callbacks keep their original
+ *  headers and cannot send a follow-up request to a newly selected profile. */
+export function createApi(profileId: string, signal?: AbortSignal) {
+  return {
+    get: <T>(path: string) => request<T>(profileId, signal, path),
+    post: <T>(path: string, body?: unknown) =>
+      request<T>(profileId, signal, path, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+    patch: <T>(path: string, body: unknown) =>
+      request<T>(profileId, signal, path, { method: 'PATCH', body: JSON.stringify(body) }),
+    put: <T>(path: string, body: unknown) =>
+      request<T>(profileId, signal, path, { method: 'PUT', body: JSON.stringify(body) }),
+    upload: <T>(path: string, body: FormData) => request<T>(profileId, signal, path, { method: 'POST', body }),
+    del: <T>(path: string) => request<T>(profileId, signal, path, { method: 'DELETE' }),
+  }
+}
+export type ProfileApi = ReturnType<typeof createApi>
+export const ApiContext = createContext<ProfileApi | null>(null)
+export function useApi(): ProfileApi {
+  const api = useContext(ApiContext)
+  if (!api) throw new Error('Profile API has not loaded')
+  return api
 }
 
 export interface VersionInfo {

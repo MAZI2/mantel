@@ -1,19 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from ..bootstrap import DEFAULT_SETTINGS, THEMES
 from ..config import get_settings
-from ..db import get_db, profile_sessions
+from ..db import get_db
 from ..models import AppSetting
+from ..profile_context import current_profile
 from ..profiles import (
     Membership,
     PersonalPreference,
     Principal,
-    Profile,
+    ProfilePreference,
     RegistrySession,
-    scope_for,
 )
 from ..services import google_config, homeassistant
 
@@ -21,54 +21,57 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 def personal_theme(identity: str, fallback: str, theme: str | None = None) -> str:
-    """Keep a person's theme across profiles; old profile themes seed it only once."""
+    """Keep themes private to a person within the selected profile."""
+    profile = current_profile.get()
+    if profile is None:
+        raise HTTPException(403, "No profile selected.")
+    key = (identity, profile.id)
     with RegistrySession() as registry:
         person = registry.get(Principal, identity)
-        if person is None or not person.enabled:
+        if person is None or not person.enabled or not registry.get(Membership, key):
             raise HTTPException(403, "No Mantel access has been assigned to this identity.")
-        preference = registry.get(PersonalPreference, identity)
+        preference = registry.get(ProfilePreference, key)
         if theme is not None:
             registry.execute(
-                insert(PersonalPreference)
-                .values(
-                    identity=identity,
-                    theme=theme,
+                insert(ProfilePreference)
+                .values(identity=identity, profile_id=profile.id, theme=theme)
+                .on_conflict_do_update(
+                    index_elements=["identity", "profile_id"], set_={"theme": theme}
                 )
-                .on_conflict_do_update(index_elements=["identity"], set_={"theme": theme})
             )
         elif preference is not None and preference.theme in THEMES:
             return preference.theme
         else:
-            # Visiting a shared link first should preserve the person's previous
-            # default-profile appearance, rather than adopt another profile's theme.
-            profile = (
-                registry.get(Profile, person.default_profile_id)
-                if person.default_profile_id
-                else None
-            )
-            if profile and registry.get(Membership, (identity, profile.id)):
-                with profile_sessions(scope_for(profile).database_url)() as profile_db:
-                    previous = profile_db.get(AppSetting, "theme")
-                    if previous and previous.value.get("value") in THEMES:
-                        fallback = previous.value["value"]
+            # Preserve the previous personal choice on upgrade. It remains a seed,
+            # so changing one profile never changes another profile's first visit.
+            previous = registry.get(PersonalPreference, identity)
+            if previous is not None and previous.theme in THEMES:
+                fallback = previous.theme
             registry.execute(
-                insert(PersonalPreference)
+                insert(ProfilePreference)
                 .values(
                     identity=identity,
+                    profile_id=profile.id,
                     theme=fallback if fallback in THEMES else "midnight",
                 )
-                .on_conflict_do_nothing(index_elements=["identity"])
+                .on_conflict_do_update(
+                    index_elements=["identity", "profile_id"],
+                    set_={"theme": fallback if fallback in THEMES else "midnight"},
+                    where=or_(
+                        ProfilePreference.theme.is_(None), ProfilePreference.theme.not_in(THEMES)
+                    ),
+                )
             )
         registry.commit()
         registry.expire_all()
-        return registry.get(PersonalPreference, identity).theme or "midnight"
+        return registry.get(ProfilePreference, key).theme or "midnight"
 
 
 @router.get(
     "",
     summary="Get app settings",
     description=(
-        "Profile preferences, with the signed-in person's own theme. Also reports "
+        "Profile preferences, with the signed-in person's own theme for this profile. Also reports "
         "read-only server facts under `server`, such as whether Google sync is configured."
     ),
 )
@@ -105,7 +108,8 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
     description=(
         'Send only the keys you want to change, e.g. `{"display_scale": "wall"}`. Unknown '
         "keys are rejected so a typo cannot silently do nothing. `theme` must be one of "
-        "`midnight` (default), `daylight` or `hearth`; it applies only to the signed-in person."
+        "`midnight` (default), `daylight` or `hearth`; it applies only to the signed-in "
+        "person in the selected profile."
     ),
 )
 def update_app_settings(payload: dict, request: Request, db: Session = Depends(get_db)) -> dict:

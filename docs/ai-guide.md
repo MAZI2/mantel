@@ -6,7 +6,7 @@ receive the proxy secret. `GET /api/session` reports your assigned profiles. Sel
 one with `X-Mantel-Profile: <id>` (or `?profile=<id>`); omission uses your default.
 Every data endpoint checks membership, including for administrators. All members
 can edit everything in a shared profile. `GET/PATCH /api/settings` keeps `theme`
-personal to the signed-in identity across profiles; other settings are shared. `/api/admin/*` additionally requires an
+personal to the signed-in identity within the selected profile; other settings are shared. `/api/admin/*` additionally requires an
 administrator. Users below are calendar owners within a profile, separate from
 these authenticated people. See [profiles.md](profiles.md) for server setup.
 
@@ -235,7 +235,7 @@ new `position`.
   | `recurrence_rule` | set | `null` (`recurring: true`) |
   | `id` on each occurrence | the same — the series' id | different for each |
   | `PATCH` that id | changes **the whole series** | changes **that occurrence only** |
-  | `DELETE` that id | deletes **the whole series** | deletes **that occurrence only** |
+  | `DELETE` that id with `scope` | selects one, all, or this and future occurrences | same |
 
   Google is asked to expand its own series, so it sends instances. iCloud sends the rule and
   this app expands it, exactly as it does for its own calendars. **Check `recurrence_rule`
@@ -299,3 +299,15 @@ either linked or it is not, which `server.icloud_linked` and `GET /api/sync/stat
 when the version changes.
 The same response carries `latest_version`, `update_available`, `checked_at` and `release_url`
 from the daily GitHub release check (all null/false until the first check succeeds).
+
+### Scoped recurring deletion
+
+For a recurring event, send `DELETE /api/events/{id}?scope=this|all|future`.
+For `this` and `future`, also send `occurrence_start` from the instance's
+`original_start_at` and the viewing `timezone` for legacy local series. The
+original slot, rather than a moved occurrence's new start, defines the boundary.
+Single-occurrence cancellations become exclusions; future deletion trims the
+series before the selected slot while preserving its history. Synced requests
+are durable and retry through the normal push loop. Without a scope, legacy
+behaviour is retained: a series row deletes the whole series and a provider
+instance row deletes only that instance.

@@ -1,11 +1,11 @@
 import { addDays, format, isSameMonth, startOfWeek } from 'date-fns'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAccounts, useEvents, useSettings, useSyncNow } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
 import { EventDialog } from '../../components/EventDialog'
 import { CalendarPicker } from '../../components/CalendarPicker'
 import { TimeGridView } from './TimeGridView'
-import { rangeFor } from './dateRange'
+import { rangeFor, type Range } from './dateRange'
 
 const SCALE_FACTOR: Record<string, number> = { normal: 1, large: 1.2, wall: 1.45 }
 
@@ -22,9 +22,14 @@ export function CalendarPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const weekStartsOn = (settings?.first_day_of_week === 1 ? 1 : 0) as 0 | 1
   const range = rangeFor('week', anchor, weekStartsOn)
-  const { data: fetched = [], isLoading } = useEvents(range.start, range.end)
+  const { data: fetched, isLoading, error, refetch } = useEvents(range.start, range.end)
+  const previous = useRef<{ range: Range; events: CalendarEvent[] } | null>(null)
+  const display = fetched ? { range, events: fetched } : previous.current ?? { range, events: [] }
+  useLayoutEffect(() => {
+    if (fetched) previous.current = { range, events: fetched }
+  }, [range, fetched])
   const hidden = settings?.hidden_calendar_ids ?? []
-  const events = fetched.filter((event) => !hidden.includes(event.calendar_id))
+  const events = display.events.filter((event) => !hidden.includes(event.calendar_id))
 
   useEffect(() => {
     if (!synced) return
@@ -73,7 +78,7 @@ export function CalendarPage() {
     <div className="calpage">
       <header className="calpage__bar">
         <div className="calpage__titlewrap">
-          <h1 className="calpage__title">{titleFor(range.start, range.end)}</h1>
+          <h1 className="calpage__title">{titleFor(display.range.start, display.range.end)}</h1>
           {isLoading && <span className="calpage__loading">…</span>}
         </div>
         {hasGoogle && <button
@@ -108,9 +113,12 @@ export function CalendarPage() {
         </div>
       )}
 
+      {error && <div className="calpage__syncerror" role="alert">
+        <span>Could not load this week.</span><button onClick={() => void refetch()}>Retry</button>
+      </div>}
       <div className="calpage__body">
         <TimeGridView
-          days={range.days}
+          days={display.range.days}
           events={events}
           dayStartHour={settings?.day_start_hour ?? 7}
           dayEndHour={settings?.day_end_hour ?? 22}

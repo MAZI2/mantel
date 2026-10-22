@@ -34,8 +34,16 @@ class Principal(RegistryBase):
 
 
 class PersonalPreference(RegistryBase):
+    # Retained as the migration seed for themes saved before profile scoping.
     __tablename__ = "personal_preferences"
     identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
+    theme: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+
+class ProfilePreference(RegistryBase):
+    __tablename__ = "profile_preferences"
+    identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
+    profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id"), primary_key=True)
     theme: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 

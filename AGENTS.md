@@ -152,6 +152,7 @@ Engineering constraints, as opposed to features nobody has written yet — those
   more than one uvicorn worker would give you N racing pull loops on one SQLite file.
 - **No retry ceiling.** A permanently failing push retries every `PUSH_INTERVAL_SECONDS` forever.
 - **Editing one occurrence of a series is unsupported** on both providers; the UI edits the
-  whole series. Cancelling a single iCloud occurrence does work.
+  whole series. Recurring deletion supports one occurrence, all occurrences, or
+  the selected occurrence and all future ones, on local and synced calendars.
 - **The `.ics` feed token** is derived from `SECRET_KEY` and cannot be revoked or scoped
   individually.

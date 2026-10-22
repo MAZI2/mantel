@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, or_, select
@@ -8,7 +9,7 @@ from ..db import get_db
 from ..models import Calendar, Event
 from ..schemas import EventCreate, EventOut, EventUpdate
 from ..serializers import event_out
-from ..services import recurrence
+from ..services import event_deletions, recurrence
 from ..services.notify import calendar_changed
 from ..services.pushqueue import mark_pending, request_push
 from ..services.timezones import home_timezone, validate_timezone
@@ -104,9 +105,7 @@ def list_events(
     start: datetime = Query(
         description="Range start, inclusive.", examples=["2026-08-01T00:00:00Z"]
     ),
-    end: datetime = Query(
-        description="Range end, exclusive.", examples=["2026-08-08T00:00:00Z"]
-    ),
+    end: datetime = Query(description="Range end, exclusive.", examples=["2026-08-08T00:00:00Z"]),
     calendar_ids: str | None = Query(default=None, description="Comma-separated calendar ids."),
     user_ids: str | None = Query(
         default=None, description="Comma-separated user ids; matches calendars they claimed."
@@ -185,10 +184,14 @@ def list_events(
     expanded: list[Event] = []
     for row in rows:
         if row.recurrence_rule:
-            expanded.extend(recurrence.materialise(
-                row, window_start, window_end,
-                fallback_timezone if row.origin == "local" else "UTC",
-            ))
+            expanded.extend(
+                recurrence.materialise(
+                    row,
+                    window_start,
+                    window_end,
+                    fallback_timezone if row.origin == "local" else "UTC",
+                )
+            )
         else:
             expanded.append(row)
 
@@ -226,7 +229,9 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> EventOu
     if ev.recurrence_rule and not ev.all_day and not ev.timezone:
         ev.timezone = home_timezone(db)
     ev.recurrence_end = recurrence.series_end(
-        ev.recurrence_rule, ev.start_at, ev.end_at - ev.start_at,
+        ev.recurrence_rule,
+        ev.start_at,
+        ev.end_at - ev.start_at,
         None if ev.all_day else ev.timezone,
     )
     mark_pending(ev, cal, "pending_create")
@@ -308,7 +313,9 @@ def _move_event(db: Session, ev: Event, target: Calendar, changes: dict) -> Even
     if moved.recurrence_rule and not moved.all_day and not moved.timezone:
         moved.timezone = home_timezone(db)
     moved.recurrence_end = recurrence.series_end(
-        moved.recurrence_rule, moved.start_at, moved.end_at - moved.start_at,
+        moved.recurrence_rule,
+        moved.start_at,
+        moved.end_at - moved.start_at,
         None if moved.all_day else moved.timezone,
     )
     mark_pending(moved, target, "pending_create")
@@ -368,7 +375,9 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
     if ev.recurrence_rule and not ev.all_day and not ev.timezone:
         ev.timezone = home_timezone(db)
     ev.recurrence_end = recurrence.series_end(
-        ev.recurrence_rule, ev.start_at, ev.end_at - ev.start_at,
+        ev.recurrence_rule,
+        ev.start_at,
+        ev.end_at - ev.start_at,
         None if ev.all_day else ev.timezone,
     )
 
@@ -385,13 +394,66 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
     summary="Delete an event",
     description=(
         "Removes the event. For Google-backed calendars it is first marked for deletion, then "
-        "removed from Google and this database once the push succeeds."
+        "removed from Google and this database once the push succeeds. For recurring events, "
+        "send scope=this, all or future and occurrence_start (the original slot)."
     ),
 )
-def delete_event(event_id: int, db: Session = Depends(get_db)) -> None:
+def delete_event(
+    event_id: int,
+    scope: Literal["this", "all", "future"] | None = Query(default=None),
+    occurrence_start: datetime | None = Query(default=None),
+    timezone: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> None:
     ev = _load(db, event_id)
     if not ev.calendar.writable:
         raise HTTPException(403, _read_only(ev.calendar))
+
+    if scope is not None and (ev.recurrence_rule or ev.recurring_event_id):
+        if ev.recurrence_rule and scope != "all" and occurrence_start is None:
+            raise HTTPException(400, "Choose the occurrence to delete.")
+        moment = (
+            to_utc(occurrence_start) if occurrence_start else event_deletions.original_start(ev)
+        )
+        if ev.recurring_event_id and not ev.original_start_at and scope != "all":
+            # Existing databases predate original-slot storage. Resolve before
+            # pruning cached history: a moved event's new date is not the boundary.
+            from ..services.sync_engine import provider_factory
+
+            try:
+                provider = provider_factory(db, ev.calendar.account)
+                original = provider.original_start(ev.calendar.remote_id, ev.remote_id)
+            except Exception as exc:
+                raise HTTPException(
+                    502, "Could not resolve the original occurrence. Sync and try again."
+                ) from exc
+            if original is None:
+                raise HTTPException(
+                    409, "The original occurrence is unavailable. Sync and try again."
+                )
+            if occurrence_start and moment not in (original, ev.start_at):
+                raise HTTPException(400, "The occurrence date does not match this event.")
+            ev.original_start_at = original
+            moment = original
+        if ev.recurrence_rule and scope != "all":
+            try:
+                fallback = validate_timezone(timezone) or home_timezone(db)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            if moment not in recurrence.occurrences(
+                ev, moment, moment + timedelta(seconds=1), fallback
+            ):
+                raise HTTPException(
+                    400, "That occurrence is no longer in this series. Refresh and try again."
+                )
+            if not ev.all_day and not ev.timezone:
+                ev.timezone = fallback
+        elif scope != "all" and moment != event_deletions.original_start(ev):
+            raise HTTPException(400, "The occurrence date does not match this event.")
+        event_deletions.queue_deletion(db, ev, scope, moment)
+        request_push()
+        calendar_changed(db)
+        return
 
     if ev.calendar.is_local or ev.google_event_id is None:
         db.delete(ev)

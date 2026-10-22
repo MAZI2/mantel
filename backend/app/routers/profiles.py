@@ -9,6 +9,7 @@ from ..profiles import (
     PersonalPreference,
     Principal,
     Profile,
+    ProfilePreference,
     RegistrySession,
     initialise_profile,
     member_profiles,
@@ -200,5 +201,6 @@ def remove_person(identity: str) -> None:
             keep_an_administrator(db, identity)
         db.execute(delete(Membership).where(Membership.identity == identity))
         db.execute(delete(PersonalPreference).where(PersonalPreference.identity == identity))
+        db.execute(delete(ProfilePreference).where(ProfilePreference.identity == identity))
         db.delete(person)
         db.commit()

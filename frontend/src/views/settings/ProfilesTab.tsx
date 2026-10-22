@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../../api/client'
+import { useApi } from '../../api/client'
 import { useSession, type ProfileInfo } from '../../profiles/ProfileProvider'
 
 interface Person {
@@ -16,6 +16,7 @@ interface Administration { profiles: ProfileInfo[]; people: Person[] }
 const changed = () => window.dispatchEvent(new Event('mantel:access-changed'))
 
 export function ProfilesTab() {
+  const api = useApi()
   const session = useSession()
   const queryClient = useQueryClient()
   const { data, isLoading, error } = useQuery({
@@ -95,6 +96,7 @@ function PersonEditor({ person, profiles, onSaved }: {
   profiles: ProfileInfo[]
   onSaved: () => Promise<void>
 }) {
+  const api = useApi()
   const [value, setValue] = useState<Person>(person ?? {
     identity: '', name: '', is_admin: false, enabled: true, profile_ids: [], default_profile_id: null,
   })

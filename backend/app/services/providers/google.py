@@ -11,8 +11,8 @@ from datetime import UTC, datetime
 from dateutil import parser as dateparser
 
 from ..google_api import GoogleCalendarClient
-from ..recurrence import with_utc_until
-from .base import RemoteCalendar, RemoteEvent
+from ..recurrence import truncate_rule, with_utc_until
+from .base import ProviderError, RemoteCalendar, RemoteEvent
 
 
 class GoogleProvider:
@@ -21,9 +21,7 @@ class GoogleProvider:
     expands_recurrence = True
     supports_event_colors = True
 
-    def __init__(
-        self, access_token: str | None = None, client: GoogleCalendarClient | None = None
-    ):
+    def __init__(self, access_token: str | None = None, client: GoogleCalendarClient | None = None):
         # `client` is how tests substitute a fake without going through a token.
         self._client = client if client is not None else GoogleCalendarClient(access_token or "")
         self._event_colors: dict | None = None
@@ -68,6 +66,63 @@ class GoogleProvider:
         # so the engine can call every provider the same way.
         self._client.delete_event(calendar_id, remote_id)
 
+    def original_start(self, calendar_id: str, remote_id: str) -> datetime | None:
+        item = self._client.get_event(calendar_id, remote_id)
+        original = item.get("originalStartTime") or {}
+        return _parse_dt(original.get("dateTime") or original.get("date"))
+
+    def delete_recurrence(
+        self,
+        calendar_id: str,
+        remote_id: str,
+        series_id: str,
+        occurrence_start: datetime,
+        scope: str,
+        all_day: bool,
+    ) -> None:
+        if scope == "all":
+            self._client.delete_event(calendar_id, series_id)
+            return
+        if remote_id and remote_id != series_id:
+            if scope == "this":
+                self._client.delete_event(calendar_id, remote_id)
+                return
+            try:
+                instance = self._client.get_event(calendar_id, remote_id)
+            except ProviderError as exc:
+                if exc.status not in (404, 410):
+                    raise
+                instance = {}
+            original = instance.get("originalStartTime") or {}
+            occurrence_start = (
+                _parse_dt(original.get("dateTime") or original.get("date")) or occurrence_start
+            )
+        master = self._client.get_event(calendar_id, series_id)
+        start, _, all_day = _parse_times(master)
+        if scope == "future" and start and occurrence_start <= start:
+            self._client.delete_event(calendar_id, series_id)
+            return
+        rules = master.get("recurrence") or []
+        if not any(rule.startswith("RRULE:") for rule in rules):
+            raise ProviderError(
+                409, "The Google series no longer has a repeat rule. Sync and try again."
+            )
+        if scope == "this":
+            stamp = occurrence_start.strftime("%Y%m%d" if all_day else "%Y%m%dT%H%M%SZ")
+            exclusion = f"EXDATE{';VALUE=DATE' if all_day else ''}:{stamp}"
+            if exclusion not in rules:
+                rules = [*rules, exclusion]
+        else:
+            rules = [
+                f"RRULE:{truncate_rule(rule[6:], occurrence_start, all_day)}"
+                if rule.startswith("RRULE:")
+                else rule
+                for rule in rules
+            ]
+            rules = _trim_rdates(rules, occurrence_start, all_day)
+        # Patch only recurrence, preserving guests, alarms and provider metadata.
+        self._client.patch_event(calendar_id, series_id, {"recurrence": rules})
+
 
 # ----------------------------- translation -----------------------------------
 
@@ -89,6 +144,10 @@ def _to_remote(item: dict, colors: dict | None = None) -> RemoteEvent:
         all_day=all_day,
         timezone=(item.get("start") or {}).get("timeZone"),
         recurring_event_id=item.get("recurringEventId"),
+        original_start=_parse_dt(
+            (item.get("originalStartTime") or {}).get("dateTime")
+            or (item.get("originalStartTime") or {}).get("date")
+        ),
         updated=_parse_dt(item.get("updated")),
     )
 
@@ -114,8 +173,10 @@ def _to_body(event: RemoteEvent) -> dict:
         # Google owns the expansion from here. Our pull asks for singleEvents, so
         # what comes back are individual instances -- which is why the master gets
         # hidden from queries once this push succeeds.
-        rule = event.recurrence_rule if event.all_day else with_utc_until(
-            event.recurrence_rule, event.timezone
+        rule = (
+            event.recurrence_rule
+            if event.all_day
+            else with_utc_until(event.recurrence_rule, event.timezone)
         )
         body["recurrence"] = [f"RRULE:{rule}"]
     return body
@@ -145,3 +206,29 @@ def _parse_times(item: dict) -> tuple[datetime | None, datetime | None, bool]:
         return start, end, True
 
     return _parse_dt(start_obj.get("dateTime")), _parse_dt(end_obj.get("dateTime")), False
+
+
+def _trim_rdates(rules: list[str], cutoff: datetime, all_day: bool) -> list[str]:
+    from icalendar import Event as IEvent
+
+    out = []
+    for rule in rules:
+        if not rule.startswith("RDATE"):
+            out.append(rule)
+            continue
+        component = IEvent.from_ical(f"BEGIN:VEVENT\r\n{rule}\r\nEND:VEVENT\r\n")
+        values = component["RDATE"].dts
+        header, raw_values = rule.split(":", 1)
+        kept = []
+        for raw, value in zip(raw_values.split(","), values, strict=True):
+            moment = value.dt
+            original = (
+                datetime.combine(moment, datetime.min.time())
+                if not isinstance(moment, datetime)
+                else (moment.astimezone(UTC).replace(tzinfo=None) if moment.tzinfo else moment)
+            )
+            if original < cutoff:
+                kept.append(raw)
+        if kept:
+            out.append(f"{header}:{','.join(kept)}")
+    return out

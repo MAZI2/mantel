@@ -1,7 +1,8 @@
+import { RecurringDeleteChoices } from './RecurringDeleteChoices'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useCalendars, useCreateEvent, useDeleteEvent, useUpdateEvent, useUsers } from '../api/hooks'
-import type { CalendarEvent } from '../api/types'
+import type { CalendarEvent, DeletionScope } from '../api/types'
 import { calendarLabel, providerPossessive } from '../api/providers'
 import { pickableCalendars } from './pickableCalendars'
 import { moveNote } from './moveNote'
@@ -25,6 +26,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
   const create = useCreateEvent()
   const update = useUpdateEvent()
   const remove = useDeleteEvent()
+  const [choosingDelete, setChoosingDelete] = useState(false)
 
   const isNew = event === null
   const readOnly = event !== null && !event.editable
@@ -131,10 +133,13 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
     }
   }
 
-  const destroy = async () => {
+  const destroy = async (scope?: DeletionScope) => {
     if (!event) return
     try {
-      await remove.mutateAsync(event.id)
+      await remove.mutateAsync(scope ? {
+        id: event.id, scope, occurrence_start: event.original_start_at || event.start_at,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      } : event.id)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not delete the event.')
@@ -332,9 +337,11 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
 
         {error && <p className="modal__error">{error}</p>}
 
-        <div className="modal__actions">
+        {choosingDelete && <RecurringDeleteChoices busy={busy}
+          onChoose={(scope) => void destroy(scope)} onCancel={() => setChoosingDelete(false)} />}
+        {!choosingDelete && <div className="modal__actions">
           {!isNew && !readOnly && (
-            <button className="btn btn--danger" onClick={destroy} disabled={busy}>
+            <button className="btn btn--danger" onClick={() => event?.recurring ? setChoosingDelete(true) : void destroy()} disabled={busy}>
               Delete
             </button>
           )}
@@ -347,7 +354,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
               {busy ? 'Saving…' : 'Save'}
             </button>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   ,

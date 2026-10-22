@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../../api/client'
+import { useApi } from '../../api/client'
 import { useEntityMutation, useUsers } from '../../api/hooks'
 import type { SharedList } from '../../api/types'
 
 const LIST_KEYS = ['lists']
 
 export function ListsPage() {
+  const api = useApi()
   const { data: lists = [] } = useQuery({
     queryKey: LIST_KEYS,
     queryFn: () => api.get<SharedList[]>('/lists'),
@@ -63,6 +64,7 @@ export function ListsPage() {
 }
 
 function ListCard({ list }: { list: SharedList }) {
+  const api = useApi()
   const { data: users = [] } = useUsers()
   const [text, setText] = useState('')
   const [assignee, setAssignee] = useState<number | ''>('')

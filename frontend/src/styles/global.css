@@ -505,3 +505,10 @@ button {
     max-width: 100%;
   }
 }
+
+/* Keep the current palette during a profile request; reveal its complete layout together. */
+.profile-loading {
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}

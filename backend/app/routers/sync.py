@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import Calendar, Event, LinkedAccount
+from ..models import Calendar, Event, EventDeletion, LinkedAccount
 from ..services import google_config, sync_engine
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -64,6 +64,14 @@ def sync_status(db: Session = Depends(get_db)) -> SyncStatusOut:
     ).all()
     pending_count = db.scalar(
         select(func.count()).select_from(Event).where(Event.sync_state != "synced")
+    )
+
+    pending_count += db.scalar(
+        select(func.count())
+        .select_from(EventDeletion)
+        .where(
+            EventDeletion.completed_at.is_(None),
+        )
     )
 
     return SyncStatusOut(

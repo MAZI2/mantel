@@ -1,5 +1,5 @@
 import { format, isToday } from 'date-fns'
-import { useEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import type { CalendarEvent } from '../../api/types'
 import { overlapsDay, startOfLocalDay } from './overlap'
 
@@ -33,7 +33,7 @@ export function TimeGridView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const hours = Array.from({ length: dayEndHour - dayStartHour }, (_, i) => dayStartHour + i)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const now = new Date()
     const offset = (now.getHours() - dayStartHour - 1) * hourHeight
     if (scrollRef.current && offset > 0) scrollRef.current.scrollTop = offset

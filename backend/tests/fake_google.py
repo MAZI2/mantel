@@ -7,6 +7,7 @@ class FakeGoogle:
 
     def __init__(self):
         self.calendars: list[dict] = []
+        self.events: dict[str, dict] = {}
         self.pages: list[tuple[list[dict], str | None]] = []
         self.expire_next_sync_token = False
         self.inserted: list[dict] = []
@@ -51,6 +52,7 @@ class FakeGoogle:
     def insert_event(self, calendar_id, body):
         gid = f"g{self.next_id}"
         self.next_id += 1
+        self.events[gid] = {"id": gid, **body}
         self.inserted.append({"calendar_id": calendar_id, "body": body, "id": gid})
         return {"id": gid, "etag": '"e1"', "updated": "2026-07-30T12:00:00Z", **body}
 
@@ -58,11 +60,12 @@ class FakeGoogle:
         if self.fail_patch_with:
             status, self.fail_patch_with = self.fail_patch_with, None
             raise GoogleApiError(status, "patch failed")
+        self.events.setdefault(event_id, {"id": event_id}).update(body)
         self.patched.append((event_id, body))
         return {"id": event_id, "etag": '"e2"', "updated": "2026-07-30T13:00:00Z", **body}
 
     def get_event(self, calendar_id, event_id):
-        return {"id": event_id}
+        return self.events.get(event_id, {"id": event_id})
 
     def delete_event(self, calendar_id, event_id):
         if self.fail_delete_with:

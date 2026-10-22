@@ -25,7 +25,7 @@ function DocsRedirect() {
 const router = createBrowserRouter([
   {
     path: '/',
-    element: <App />,
+    element: <ProfileProvider><App /></ProfileProvider>,
     children: [
       { index: true, element: <WeekRedirect /> },
       { path: 'calendar/week', element: <CalendarPage /> },
@@ -54,8 +54,6 @@ if ('serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ProfileProvider>
-      <RouterProvider router={router} />
-    </ProfileProvider>
+    <RouterProvider router={router} />
   </StrictMode>,
 )

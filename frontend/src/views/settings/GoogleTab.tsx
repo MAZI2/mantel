@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../../api/client'
+import { useApi } from '../../api/client'
 import { useEntityMutation, useSettings, useUsers } from '../../api/hooks'
 import type { AppSettings, LinkedAccount, SyncStatus } from '../../api/types'
 import { googleRedirectProblem, localhostAlternative, tunnelCommand } from './googleRedirect'
 
 export function GoogleTab() {
+  const api = useApi()
   const { data: settings } = useSettings()
   const { data: users = [] } = useUsers()
   const { data: allAccounts = [], refetch: refetchAccounts } = useQuery({

@@ -1,10 +1,10 @@
-import { useEffect } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useInsertionEffect } from 'react'
+import { Outlet, useLocation } from 'react-router-dom'
 import { useSettings } from './api/hooks'
 import { bookmarkLabel, safeBookmarkUrl } from './components/bookmark'
 import { Screensaver } from './components/Screensaver'
 import { useVersionPoll } from './hooks/useVersionPoll'
-import { profileHref } from './api/client'
+import { ProfileNavigation } from './profiles/ProfileNavigation'
 import { useSession } from './profiles/ProfileProvider'
 import { useBurnInShift } from './hooks/useIdle'
 import { useOnline } from './hooks/useOnline'
@@ -13,18 +13,21 @@ import { applyTheme, isThemeId } from './theme'
 
 export function App() {
   const session = useSession()
-  const navigate = useNavigate()
-  const activeId = new URLSearchParams(useLocation().search).get('profile') || session.default_profile_id
+  const location = useLocation()
+  const activeId = new URLSearchParams(location.search).get('profile') || session.default_profile_id
   useVersionPoll()
   const { data: settings } = useSettings()
-  const onCalendar = useLocation().pathname.startsWith('/calendar')
 
   useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
     const check = async () => {
       try {
-        const response = await fetch('/api/session', { cache: 'no-store' })
+        const response = await fetch('/api/session', { cache: 'no-store', signal: controller.signal })
+        if (cancelled) return
         if (!response.ok) { window.location.reload(); return }
         const next = await response.json()
+        if (cancelled) return
         if (next.identity !== session.identity || next.is_admin !== session.is_admin ||
             !next.profiles.some((p: { id: string }) => p.id === activeId)) window.location.assign('/')
         else if (JSON.stringify(next.profiles) !== JSON.stringify(session.profiles)) window.location.reload()
@@ -34,7 +37,7 @@ export function App() {
     const focus = () => void check()
     window.addEventListener('focus', focus)
     window.addEventListener('mantel:access-changed', focus)
-    return () => { clearInterval(timer); window.removeEventListener('focus', focus); window.removeEventListener('mantel:access-changed', focus) }
+    return () => { cancelled = true; controller.abort(); clearInterval(timer); window.removeEventListener('focus', focus); window.removeEventListener('mantel:access-changed', focus) }
   }, [session, activeId])
 
   // Keeps the app the height of the space actually available, so a phone keyboard
@@ -49,15 +52,11 @@ export function App() {
   // haven't set up. That matters on a wall display.
   const bookmark = safeBookmarkUrl(settings?.bookmark_url)
 
-  useEffect(() => {
+  // Apply CSS variables before child layout effects measure the grid and scroll it.
+  useInsertionEffect(() => {
     document.documentElement.dataset.scale = settings?.display_scale ?? 'normal'
-  }, [settings?.display_scale])
-
-  useEffect(() => {
-    // An unrecognised value (a newer server, a hand-edited row) keeps whatever is
-    // already showing rather than blanking every token.
     if (isThemeId(settings?.theme)) applyTheme(settings.theme)
-  }, [settings?.theme])
+  }, [settings?.display_scale, settings?.theme])
 
   return (
     <div
@@ -75,24 +74,7 @@ export function App() {
       <main className="shell__main">
         <Outlet />
       </main>
-      <nav className="shell__nav">
-        <div className="profile-nav" role="group" aria-label="Profiles">
-          {session.profiles.map((profile) => (
-            <button key={profile.id} className="navbtn" aria-pressed={profile.id === activeId}
-              aria-current={onCalendar && profile.id === activeId ? 'page' : undefined}
-              onClick={() => {
-                const target = profileHref('/calendar/week', profile.id)
-                // A fresh app instance gives each profile its own query/mutation
-                // lifecycle; a slow request cannot finish in another profile's UI.
-                if (profile.id === activeId) void navigate(target)
-                else window.location.assign(target)
-              }}>
-              {profile.name}
-            </button>
-          ))}
-        </div>
-        <NavLink to={profileHref('/settings')} className="navbtn profile-settings">Settings</NavLink>
-      </nav>
+      <ProfileNavigation session={session} activeId={activeId} />
       {!online && <div className="offline">Offline — showing the last known schedule</div>}
       <Screensaver />
     </div>

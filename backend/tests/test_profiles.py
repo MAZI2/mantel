@@ -361,28 +361,24 @@ def test_concurrent_requests_keep_their_own_profile_context(client):
         ]
 
 
-def test_theme_follows_the_person_across_profiles_while_other_settings_stay_shared(client):
+def test_themes_are_per_person_and_profile_while_other_settings_stay_shared(client):
     personal, shared = setup_shared(client)
     partner = headers(profile=shared)
     admin = headers("local-admin", shared)
     assert client.patch("/api/settings", json={"theme": "daylight"}).status_code == 200
     assert client.get("/api/settings", headers=partner).json()["theme"] == "midnight"
-    assert client.get("/api/settings", headers=admin).json()["theme"] == "daylight"
+    assert client.get("/api/settings", headers=admin).json()["theme"] == "midnight"
+    client.patch("/api/settings", headers=admin, json={"theme": "hearth"})
     result = client.patch(
         "/api/settings",
         headers=partner,
-        json={
-            "theme": "hearth",
-            "day_start_hour": 9,
-            "hidden_calendar_ids": [1],
-        },
+        json={"theme": "daylight", "day_start_hour": 9, "hidden_calendar_ids": [1]},
     )
     assert result.status_code == 200
     own = client.get("/api/settings", headers=admin).json()
-    assert own["theme"] == "daylight"
+    assert own["theme"] == "hearth"
     assert own["day_start_hour"] == 9 and own["hidden_calendar_ids"] == [1]
-    assert client.get("/api/settings", headers=partner).json()["theme"] == "hearth"
-    # Assigning another profile does not reset or change the person's preference.
+    assert client.get("/api/settings").json()["theme"] == "daylight"
     client.put(
         "/api/admin/people/partner",
         json={
@@ -392,40 +388,72 @@ def test_theme_follows_the_person_across_profiles_while_other_settings_stay_shar
             "default_profile_id": shared,
         },
     )
-    assert (
-        client.get("/api/settings", headers=headers(profile=personal)).json()["theme"] == "hearth"
-    )
+    partner_personal = headers(profile=personal)
+    assert client.get("/api/settings", headers=partner_personal).json()["theme"] == "midnight"
+    client.patch("/api/settings", headers=partner_personal, json={"theme": "hearth"})
+    assert client.get("/api/settings", headers=partner_personal).json()["theme"] == "hearth"
+    assert client.get("/api/settings", headers=partner).json()["theme"] == "daylight"
+    assert client.get("/api/settings").json()["theme"] == "daylight"
     assert client.patch("/api/settings", headers=partner, json={"theme": "neon"}).status_code == 400
-    assert client.get("/api/settings", headers=partner).json()["theme"] == "hearth"
+    assert client.get("/api/settings", headers=partner).json()["theme"] == "daylight"
 
 
-def test_previous_default_profile_theme_seeds_personal_preference_once(client, db):
+def test_selected_profiles_previous_shared_theme_seeds_personal_preference_once(client, db):
     from app.models import AppSetting
-    from app.profiles import PersonalPreference, RegistrySession
+    from app.profiles import ProfilePreference, RegistrySession
 
     personal, shared = setup_shared(client)
     db.get(AppSetting, "theme").value = {"value": "hearth"}
     db.commit()
-    # The first request may be a shared-profile bookmark on another device.
     assert (
         client.get("/api/settings", headers=headers("local-admin", shared)).json()["theme"]
-        == "hearth"
+        == "midnight"
     )
+    assert client.get("/api/settings").json()["theme"] == "hearth"
     db.get(AppSetting, "theme").value = {"value": "daylight"}
     db.commit()
     assert client.get("/api/settings").json()["theme"] == "hearth"
     with RegistrySession() as registry:
-        assert registry.get(PersonalPreference, "local-admin").theme == "hearth"
+        assert registry.get(ProfilePreference, ("local-admin", personal)).theme == "hearth"
+
+
+def test_old_personal_theme_seeds_each_profile_without_linking_later_changes(client):
+    from app.profiles import PersonalPreference, RegistrySession
+
+    personal, shared = setup_shared(client)
+    with RegistrySession() as registry:
+        registry.add(PersonalPreference(identity="local-admin", theme="hearth"))
+        registry.commit()
+    assert client.get("/api/settings").json()["theme"] == "hearth"
+    client.patch("/api/settings", json={"theme": "daylight"})
+    # Even a profile first visited later keeps the old choice, not the latest edit.
     assert (
-        client.get("/api/settings", headers=headers("local-admin", personal)).json()["theme"]
+        client.get("/api/settings", headers=headers("local-admin", shared)).json()["theme"]
         == "hearth"
+    )
+    client.patch(
+        "/api/settings", headers=headers("local-admin", shared), json={"theme": "midnight"}
+    )
+    assert client.get("/api/settings").json()["theme"] == "daylight"
+    assert (
+        client.get("/api/settings", headers=headers("local-admin", shared)).json()["theme"]
+        == "midnight"
     )
 
 
 def test_remove_person_revokes_access_and_removes_preferences_but_keeps_profile_data(client):
-    from app.profiles import Membership, PersonalPreference, Principal, RegistrySession
+    from app.profiles import (
+        Membership,
+        PersonalPreference,
+        Principal,
+        ProfilePreference,
+        RegistrySession,
+    )
 
     _, shared = setup_shared(client)
+    with RegistrySession() as registry:
+        registry.add(PersonalPreference(identity="partner", theme="midnight"))
+        registry.commit()
     event(client, "Keep shared event", shared, "partner")
     client.patch("/api/settings", headers=headers(profile=shared), json={"theme": "hearth"})
     assert client.delete("/api/admin/people/local-admin", headers=headers()).status_code == 403
@@ -439,6 +467,7 @@ def test_remove_person_revokes_access_and_removes_preferences_but_keeps_profile_
     with RegistrySession() as registry:
         assert registry.get(Principal, "partner") is None
         assert registry.get(PersonalPreference, "partner") is None
+        assert registry.get(ProfilePreference, ("partner", shared)) is None
         assert registry.get(Membership, ("partner", shared)) is None
     assert client.delete("/api/admin/people/partner").status_code == 404
     assert client.delete("/api/admin/people/local-admin").status_code == 400

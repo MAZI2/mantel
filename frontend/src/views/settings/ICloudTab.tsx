@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../../api/client'
+import { useApi } from '../../api/client'
 import { useEntityMutation, useUsers } from '../../api/hooks'
 import type { LinkedAccount, SyncStatus } from '../../api/types'
 
@@ -16,6 +16,7 @@ import type { LinkedAccount, SyncStatus } from '../../api/types'
  *  so it is checked against iCloud before anything is stored, and the only way to
  *  revoke it is at appleid.apple.com. Both are said plainly below. */
 export function ICloudTab() {
+  const api = useApi()
   const { data: users = [] } = useUsers()
   const { data: accounts = [], refetch: refetchAccounts } = useQuery({
     queryKey: ['accounts'],
