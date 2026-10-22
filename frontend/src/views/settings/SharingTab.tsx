@@ -69,6 +69,7 @@ export function SharingTab() {
         anyone who has it can read the family's schedule.
       </p>
 
+      {calendars.some((c) => c.source_profile_id) && <p className="hint">Linked calendars require access to both profiles and are not included in these subscription links.</p>}
       <div className="row">
         <div className="row__name row__name--static">
           Everything
@@ -79,7 +80,7 @@ export function SharingTab() {
         </button>
       </div>
 
-      {calendars.map((c) => (
+      {calendars.filter((c) => !c.source_profile_id).map((c) => (
         <div key={c.id} className="row">
           <div className="row__name row__name--static row__name--inline">
             <span className="swatch" style={{ background: c.color }} />

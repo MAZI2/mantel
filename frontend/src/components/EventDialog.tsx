@@ -2,7 +2,7 @@ import { RecurringDeleteChoices } from './RecurringDeleteChoices'
 import { format, isSameDay } from 'date-fns'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { useCalendars, useDeleteEvent, useSettings, useUsers } from '../api/hooks'
+import { useCalendars, useDeleteEvent, useEventImportance, useSettings, useUsers } from '../api/hooks'
 import { calendarLabel } from '../api/providers'
 import type { CalendarEvent, DeletionScope } from '../api/types'
 import { acquireReloadGuard } from '../hooks/useVersionPoll'
@@ -18,22 +18,25 @@ interface Props {
 /** Existing events open as details; empty slots still open the creation form. */
 export function EventDialog({ event, defaultStart, onClose }: Props) {
   const [editing, setEditing] = useState(false)
+  const [selected, setSelected] = useState(event)
   return event && !editing ? (
-    <EventDetails event={event} onEdit={() => setEditing(true)} onClose={onClose} />
+    <EventDetails event={event} onEdit={(next) => { setSelected(next); setEditing(true) }} onClose={onClose} />
   ) : (
-    <EventModal event={event} defaultStart={defaultStart} onClose={onClose} />
+    <EventModal event={selected} defaultStart={defaultStart} onClose={onClose} />
   )
 }
 
 function EventDetails({ event, onEdit, onClose }: {
   event: CalendarEvent
-  onEdit: () => void
+  onEdit: (event: CalendarEvent) => void
   onClose: () => void
 }) {
   const { data: settings } = useSettings()
   const { data: calendars = [] } = useCalendars()
   const { data: users = [] } = useUsers()
   const remove = useDeleteEvent()
+  const importance = useEventImportance()
+  const [important, setImportant] = useState(event.important !== false)
   const [choosingDelete, setChoosingDelete] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const card = useRef<HTMLDivElement>(null)
@@ -41,7 +44,7 @@ function EventDetails({ event, onEdit, onClose }: {
   const titleId = useId()
   const calendar = calendars.find((c) => c.id === event.calendar_id)
   const person = users.find((u) => u.id === event.user_id)
-  const busy = remove.isPending
+  const busy = remove.isPending || importance.isPending
 
   useEffect(() => {
     const previous = document.activeElement
@@ -61,7 +64,7 @@ function EventDetails({ event, onEdit, onClose }: {
       if (!busy) onClose()
     }
     if (e.key !== 'Tab') return
-    const buttons = card.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+    const buttons = card.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')
     if (!buttons?.length) {
       e.preventDefault()
       return
@@ -108,6 +111,17 @@ function EventDetails({ event, onEdit, onClose }: {
           {event.recurring && <div><dt>Repeats</dt><dd>{event.recurrence_text || 'Repeating event'}</dd></div>}
         </dl>
         {event.description && <p className="event-details__notes">{event.description}</p>}
+        <label className="toggle">
+          <input type="checkbox" checked={important} disabled={busy}
+            onChange={(e) => {
+              const value = e.target.checked
+              setImportant(value)
+              importance.mutate({ id: event.id, important: value }, {
+                onError: () => setImportant(!value),
+              })
+            }} /> Important for me
+        </label>
+        {importance.error && <p className="modal__error" role="alert">Could not save importance. Please try again.</p>}
         {!event.editable && <p className="modal__note">This calendar is read-only.</p>}
         {error && <p className="modal__error" role="alert">{error}</p>}
 
@@ -119,7 +133,7 @@ function EventDetails({ event, onEdit, onClose }: {
               {busy ? 'Deleting…' : 'Delete'}
             </button>
             <div className="modal__spacer" />
-            <button className="btn btn--primary" onClick={onEdit} disabled={busy}>Edit</button>
+            <button className="btn btn--primary" onClick={() => onEdit({ ...event, important })} disabled={busy}>Edit</button>
           </div>
         )}
       </div>

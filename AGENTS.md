@@ -156,3 +156,16 @@ Engineering constraints, as opposed to features nobody has written yet — those
   the selected occurrence and all future ones, on local and synced calendars.
 - **The `.ics` feed token** is derived from `SECRET_KEY` and cannot be revoked or scoped
   individually.
+
+## Linked calendars and personal event preferences
+
+Linked calendars are references to an original profile/calendar, without copied events
+or provider credentials. Both profile memberships must be checked for each linked
+read/write, and a virtual event ID must also be checked against that exact source
+calendar. Never treat an encoded event ID or an existing link as an access grant.
+Links cannot target other links, and destination bearer feeds exclude them.
+
+Importance is personal registry data, not an Event column or provider field. Preserve
+its key when creating an upstream event, recreating a deleted remote event or moving
+between calendars. Recurring occurrences share the series mark. The personal default
+is global across profiles; the star filter is personal within the selected profile.

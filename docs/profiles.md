@@ -68,8 +68,8 @@ local Family calendar, without copying anyone's events or linked accounts.
 Server environment defaults, including any legacy Google client configuration,
 may seed fresh defaults; connected account tokens are never copied.
 
-All members can edit everything inside a shared profile. Colour theme and calendar
-visibility are personal exceptions: the existing **Settings → Display → Colour theme**
+All members can edit shared events and settings inside a profile. Colour theme,
+calendar visibility and event importance are personal: the existing **Settings → Display → Colour theme**
 control saves to the signed-in person's preferences for the selected profile, across devices.
 Other members keep their own theme, and each person can choose different themes
 for different profiles. On upgrade, the previous personal theme seeds each profile;
@@ -142,3 +142,38 @@ Administrator endpoints:
 
 The browser sends only the selected profile ID. The certificate proxy supplies
 the verified identity and secret, including on these administration requests.
+
+## Personal event importance
+
+**Settings → Display → Important by default** starts enabled and belongs to the
+signed-in person across all profiles. It supplies the initial mark for new events
+and events that person has not seen before. Changing the default leaves existing
+personal marks unchanged. **Important for me** in event details or the event editor
+changes only that person's mark, including on shared or read-only calendars.
+A recurring series shares one personal mark across its occurrences. Marks survive
+provider sync and full resync, and follow moves between calendars in the same profile.
+
+The star beside Settings dims events you have not marked important to **25% opacity**,
+including all-day events. It does not hide or disable them. The star state belongs
+to the person and selected profile and persists across devices.
+
+## Calendars linked from other profiles
+
+In **Settings → Calendars**, choose **Add calendar from another profile**. The list
+contains original calendars in your other active profiles. The link uses the
+original events directly: changes, creation and deletion from either profile
+update that calendar, and its original Google/iCloud connection continues syncing.
+The original calendar names, colours and permissions are retained; manage its
+calendar settings in the original profile. Removing a link keeps the source
+calendar and events. To move an event between calendars, use its original profile.
+
+Every read and write requires the person to belong to **both** profiles. Other
+members of the destination who lack source membership cannot see the calendar,
+its metadata or events. Revoking either membership or archiving a profile blocks
+further linked access. Links cannot be nested, and they do not copy credentials
+or unrelated source calendars. A person's importance mark refers to the same
+event whether opened in the original profile or through a link; the star state
+and visible-calendar selection remain separate for each profile.
+
+Subscription feeds exclude linked calendars: a destination-profile bearer token
+must not grant source-profile access. Subscribe from the original profile instead.

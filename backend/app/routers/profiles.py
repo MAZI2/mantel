@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select, text
 
 from ..profiles import (
+    EventPreference,
     Membership,
     PersonalPreference,
     Principal,
@@ -199,6 +200,7 @@ def remove_person(identity: str) -> None:
             raise HTTPException(404, "Person not found.")
         if person.is_admin and person.enabled:
             keep_an_administrator(db, identity)
+        db.execute(delete(EventPreference).where(EventPreference.identity == identity))
         db.execute(delete(Membership).where(Membership.identity == identity))
         db.execute(delete(PersonalPreference).where(PersonalPreference.identity == identity))
         db.execute(delete(ProfilePreference).where(ProfilePreference.identity == identity))

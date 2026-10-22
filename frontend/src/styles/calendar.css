@@ -1028,3 +1028,8 @@ a.btn {
   margin-top: 16px;
 }
 .recurring-delete p { margin: 0; }
+
+.calpage[data-highlight-important='true'] .event-block[data-important='false'],
+.calpage[data-highlight-important='true'] .chip[data-important='false'] {
+  opacity: 0.25;
+}

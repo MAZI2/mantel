@@ -168,6 +168,7 @@ export function DayColumn({
         <button
           key={event.id}
           className="event-block"
+          data-important={event.important !== false}
           // A block this short cannot fit a title above a time; the CSS
           // lays those out on one line instead.
           data-compact={height < TWO_LINES_PX}
@@ -211,6 +212,7 @@ export function AllDayChips({
           <button
             key={e.id}
             className="chip"
+            data-important={e.important !== false}
             style={{ background: e.color }}
             onClick={() => onSelectEvent(e)}
           >

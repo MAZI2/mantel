@@ -221,7 +221,10 @@ def test_registry_upgrade_adds_nullable_visibility_without_losing_saved_themes(t
                 text("INSERT INTO profile_preferences VALUES ('partner', 'shared', 'hearth')")
             )
         applied = sync(target, RegistryBase.metadata)
-        assert applied == ["profile_preferences.hidden_calendar_ids"]
+        assert set(applied) == {
+            "profile_preferences.hidden_calendar_ids",
+            "profile_preferences.highlight_important",
+        }
         column = next(
             c
             for c in inspect(target).get_columns("profile_preferences")

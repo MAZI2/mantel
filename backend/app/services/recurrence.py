@@ -209,6 +209,7 @@ def materialise(
     for start in occurrences(event, window_start, window_end, fallback_timezone):
         instance = Event(
             id=event.id,
+            created_at=event.created_at,
             calendar_id=event.calendar_id,
             google_event_id=event.google_event_id,
             title=event.title,

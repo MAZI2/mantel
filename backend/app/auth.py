@@ -9,7 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from .config import get_settings
-from .profile_context import current_profile
+from .profile_context import current_identity, current_profile
 from .profiles import (
     Membership,
     Principal,
@@ -54,6 +54,7 @@ class ProfileMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/api/") or request.url.path == "/api/health":
             return await call_next(request)
         token = None
+        identity_token = None
         try:
             check_origin(request)
             # Subscriptions are explicit bearer capabilities, scoped to one profile.
@@ -77,6 +78,7 @@ class ProfileMiddleware(BaseHTTPMiddleware):
                         raise HTTPException(403, "Invalid subscription link.")
             else:
                 identity = authenticated_identity(request)
+                identity_token = current_identity.set(identity)
                 with RegistrySession() as db:
                     principal = db.get(Principal, identity)
                     if principal is None or not principal.enabled:
@@ -136,3 +138,5 @@ class ProfileMiddleware(BaseHTTPMiddleware):
         finally:
             if token is not None:
                 current_profile.reset(token)
+            if identity_token is not None:
+                current_identity.reset(identity_token)

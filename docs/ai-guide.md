@@ -311,3 +311,26 @@ series before the selected slot while preserving its history. Synced requests
 are durable and retry through the normal push loop. Without a scope, legacy
 behaviour is retained: a series row deletes the whole series and a provider
 instance row deletes only that instance.
+
+## Personal importance and cross-profile calendars
+
+`important_by_default` in `GET/PATCH /api/settings` is a personal boolean across
+profiles, initially true. `highlight_important` is personal within the selected
+profile, initially false. Event responses include the current person's `important`
+mark. Set it in event create/update payloads, or use
+`PATCH /api/events/<id>/importance` with `{"important": false}`. The latter also
+works for read-only calendars and never queues a provider edit. New or previously
+unseen events take the person's default; existing marks remain unchanged.
+
+`GET /api/calendars/import-options` lists original calendars in your other profiles.
+`POST /api/calendars/import` takes
+`{"source_profile_id": "<id>", "source_calendar_id": 1}` and adds a live link.
+Both source and destination membership are checked on every linked operation;
+administrator status does not bypass either requirement. Calendar responses identify
+links with `source_profile_id`, `source_calendar_id` and `source_profile_name`.
+Use the returned calendar ID to create events and the returned event IDs to read,
+edit, mark or delete them. Linked event IDs are negative opaque integers: preserve
+them unchanged. Event edits and scoped recurring deletions reach the original
+calendar and its provider queue. Remove a link with `DELETE /api/calendars/<id>`;
+the source calendar remains. Moving linked events between calendars is done in
+the source profile. Linked calendars are excluded from destination subscription feeds.

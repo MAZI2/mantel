@@ -512,3 +512,22 @@ button {
   place-items: center;
   color: var(--text-dim);
 }
+
+.shell--profiles .profile-importance {
+  flex: 0 0 44px;
+  min-width: 44px;
+  padding: 6px;
+  font-size: 24px;
+}
+.profile-importance[aria-pressed='true'] { color: var(--accent); }
+.profile-importance-error {
+  position: fixed;
+  bottom: 64px;
+  right: 8px;
+  max-width: min(360px, 90vw);
+  padding: 10px;
+  background: var(--bg-elev);
+  color: var(--danger);
+}
+.linked-calendar-form { margin-top: 20px; }
+.linked-calendar-form select { min-width: 0; max-width: 100%; flex: 1; }

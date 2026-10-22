@@ -100,8 +100,11 @@ def one_calendar(
     token: str = Query(description="From GET /api/feeds/token."),
     db: Session = Depends(get_db),
 ) -> PlainTextResponse:
-    if db.get(Calendar, calendar_id) is None:
+    calendar = db.get(Calendar, calendar_id)
+    if calendar is None:
         raise HTTPException(404, "Calendar not found")
+    if calendar.is_linked:
+        raise HTTPException(403, "Subscribe from the original profile for a linked calendar.")
     return _feed_response(db, calendar_id, token)
 
 

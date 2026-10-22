@@ -88,3 +88,10 @@ after its settings, accounts, calendars and current-week events have loaded.
 Its theme, scale and starting scroll position apply before the calendar is painted.
 Week navigation retains the last complete week while the requested one loads;
 an unsuccessful request offers Retry instead of clearing the schedule.
+
+The star beside Settings dims unimportant timed and all-day events to 25% opacity.
+Test personal marks with two identities; the default is personal across profiles,
+while the star is personal per profile. Settings → Calendars can link an original
+calendar from another accessible profile. Test edits in both directions, scoped
+recurring deletion, and denied access after revoking source membership. Removing
+the link keeps the original calendar. The browser suite exercises these flows.

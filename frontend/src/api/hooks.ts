@@ -97,6 +97,13 @@ export function useDeleteEvent() {
   })
 }
 
+export function useEventImportance() {
+  const api = useApi()
+  return useCalendarMutation(({ id, important }: { id: number; important: boolean }) =>
+    api.patch<CalendarEvent>(`/events/${id}/importance`, { important }),
+  )
+}
+
 export function useSyncNow() {
   const api = useApi()
   const qc = useQueryClient()

@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..models import Calendar, Event
-from ..schemas import EventCreate, EventOut, EventUpdate
+from ..schemas import EventCreate, EventOut, EventUpdate, ImportanceUpdate
 from ..serializers import event_out
-from ..services import event_deletions, recurrence
+from ..services import calendar_links, event_deletions, importance, recurrence
 from ..services.notify import calendar_changed
 from ..services.pushqueue import mark_pending, request_push
 from ..services.timezones import home_timezone, validate_timezone
@@ -48,7 +48,9 @@ def _series_colors(db: Session, events: list[Event]) -> dict[tuple[int, str], st
 
 def _event_out(db: Session, event: Event) -> EventOut:
     inherited = _series_colors(db, [event]).get((event.calendar_id, event.recurring_event_id))
-    return event_out(event, inherited)
+    result = event_out(event, inherited)
+    result.important = importance.values([event])[0]
+    return result
 
 
 def _id_list(raw: str, field: str) -> list[int]:
@@ -197,9 +199,40 @@ def list_events(
 
     expanded.sort(key=lambda e: (e.start_at, e.id))
     series_colors = _series_colors(db, expanded)
-    return [
-        event_out(e, series_colors.get((e.calendar_id, e.recurring_event_id))) for e in expanded
+    marks = importance.values(expanded)
+    result = [
+        event_out(e, series_colors.get((e.calendar_id, e.recurring_event_id))).model_copy(
+            update={"important": mark}
+        )
+        for e, mark in zip(expanded, marks, strict=True)
     ]
+    selected_calendars = _id_list(calendar_ids, "calendar_ids") if calendar_ids else None
+    selected_users = _id_list(user_ids, "user_ids") if user_ids else None
+    for link in db.scalars(select(Calendar).where(Calendar.source_profile_id.is_not(None))):
+        if selected_calendars is not None and link.id not in selected_calendars:
+            continue
+        if selected_users is not None and link.claimed_by_user_id not in selected_users:
+            continue
+        if not include_unclaimed and selected_users is None and link.claimed_by_user_id is None:
+            continue
+        try:
+            with calendar_links.source_calendar(link) as (source_db, source_cal, _):
+                source_events = list_events(
+                    start=start,
+                    end=end,
+                    calendar_ids=str(source_cal.id),
+                    user_ids=None,
+                    q=q,
+                    include_unclaimed=True,
+                    timezone=timezone,
+                    db=source_db,
+                )
+                result.extend(calendar_links.event_output(link, event) for event in source_events)
+        except HTTPException as exc:
+            if exc.status_code not in (403, 404):
+                raise
+    result.sort(key=lambda event: (event.start_at, event.id))
+    return result
 
 
 @router.post(
@@ -215,9 +248,17 @@ def list_events(
 def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> EventOut:
     if payload.end_at <= payload.start_at:
         raise HTTPException(400, "`end_at` must be after `start_at`")
+    requested = db.get(Calendar, payload.calendar_id)
+    if requested is not None and requested.is_linked:
+        with calendar_links.source_calendar(requested) as (source_db, source_cal, _):
+            result = create_event(
+                payload.model_copy(update={"calendar_id": source_cal.id}), source_db
+            )
+            return calendar_links.event_output(requested, result)
     cal = _writable_calendar(db, payload.calendar_id)
 
     data = payload.model_dump()
+    important = data.pop("important", None)
     data["start_at"] = to_utc(data["start_at"])
     data["end_at"] = to_utc(data["end_at"])
     if data.get("recurrence_rule"):
@@ -237,6 +278,7 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> EventOu
     mark_pending(ev, cal, "pending_create")
     db.add(ev)
     db.commit()
+    importance.values([ev], important)
     request_push()
     calendar_changed(db)
     return _event_out(db, _load(db, ev.id))
@@ -244,6 +286,12 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> EventOu
 
 @router.get("/{event_id}", response_model=EventOut, summary="Get one event")
 def get_event(event_id: int, db: Session = Depends(get_db)) -> EventOut:
+    if event_id < 0:
+        link, original = calendar_links.event_source(db, event_id)
+        with calendar_links.source_calendar(link) as (source_db, source_cal, _):
+            if _load(source_db, original).calendar_id != source_cal.id:
+                raise HTTPException(404, "Event not found.")
+            return calendar_links.event_output(link, get_event(original, source_db))
     return _event_out(db, _load(db, event_id))
 
 
@@ -280,6 +328,8 @@ def _move_target(db: Session, ev: Event, calendar_id: int) -> Calendar:
             "created on.",
         )
     target = _writable_calendar(db, calendar_id)
+    if target.is_linked:
+        raise HTTPException(400, "Move events between calendars in their original profile.")
     if not target.is_local and not target.sync_enabled:
         # The push queue skips calendars with syncing off, so the event would save here
         # and never reach the provider.
@@ -301,6 +351,8 @@ def _move_event(db: Session, ev: Event, target: Calendar, changes: dict) -> Even
     calendar neither shows it (list_events hides it) nor overwrites it
     (`_apply_remote_event` leaves unsynced rows alone).
     """
+    old_key = importance.event_key(ev)
+    old_calendar_id = ev.calendar_id
     values = {field: getattr(ev, field) for field in _MOVED_FIELDS}
     # An explicit null on a required field is ignored, as it would otherwise erase it.
     values.update({k: v for k, v in changes.items() if v is not None or k in _NULLABLE})
@@ -326,6 +378,7 @@ def _move_event(db: Session, ev: Event, target: Calendar, changes: dict) -> Even
     else:
         ev.sync_state = "pending_delete"
     db.commit()
+    importance.transfer(moved, old_calendar_id, old_key)
     return moved
 
 
@@ -345,11 +398,21 @@ def _move_event(db: Session, ev: Event, target: Calendar, changes: dict) -> Even
     ),
 )
 def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_db)) -> EventOut:
+    if event_id < 0:
+        link, original = calendar_links.event_source(db, event_id)
+        with calendar_links.source_calendar(link) as (source_db, source_cal, _):
+            if _load(source_db, original).calendar_id != source_cal.id:
+                raise HTTPException(404, "Event not found.")
+            if payload.calendar_id is not None and payload.calendar_id != link.id:
+                raise HTTPException(400, "Move linked events from their original profile.")
+            patch = payload.model_copy(update={"calendar_id": source_cal.id})
+            return calendar_links.event_output(link, update_event(original, patch, source_db))
     ev = _load(db, event_id)
     if not ev.calendar.writable:
         raise HTTPException(403, _read_only(ev.calendar))
 
     changes = payload.model_dump(exclude_unset=True)
+    important = changes.pop("important", None)
     new_calendar_id = changes.pop("calendar_id", None)
     moving = new_calendar_id is not None and new_calendar_id != ev.calendar_id
     target = _move_target(db, ev, new_calendar_id) if moving else None
@@ -366,6 +429,7 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
         moved = _move_event(db, ev, target, changes)
         request_push()
         calendar_changed(db)
+        importance.values([moved], important)
         return _event_out(db, _load(db, moved.id))
 
     for key, value in changes.items():
@@ -385,7 +449,25 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
     db.commit()
     request_push()
     calendar_changed(db)
+    importance.values([ev], important)
     return _event_out(db, _load(db, event_id))
+
+
+@router.patch("/{event_id}/importance", response_model=EventOut)
+def update_importance(
+    event_id: int, payload: ImportanceUpdate, db: Session = Depends(get_db)
+) -> EventOut:
+    if event_id < 0:
+        link, original = calendar_links.event_source(db, event_id)
+        with calendar_links.source_calendar(link) as (source_db, source_cal, _):
+            if _load(source_db, original).calendar_id != source_cal.id:
+                raise HTTPException(404, "Event not found.")
+            return calendar_links.event_output(
+                link, update_importance(original, payload, source_db)
+            )
+    event = _load(db, event_id)
+    importance.values([event], payload.important)
+    return _event_out(db, event)
 
 
 @router.delete(
@@ -405,6 +487,12 @@ def delete_event(
     timezone: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> None:
+    if event_id < 0:
+        link, original = calendar_links.event_source(db, event_id)
+        with calendar_links.source_calendar(link) as (source_db, source_cal, _):
+            if _load(source_db, original).calendar_id != source_cal.id:
+                raise HTTPException(404, "Event not found.")
+            return delete_event(original, scope, occurrence_start, timezone, source_db)
     ev = _load(db, event_id)
     if not ev.calendar.writable:
         raise HTTPException(403, _read_only(ev.calendar))

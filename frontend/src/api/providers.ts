@@ -35,8 +35,10 @@ export function providerPossessive(provider: string | null | undefined): string 
 export function calendarLabel(c: {
   name: string
   account_provider?: string | null
+  source_profile_name?: string | null
   account_email?: string | null
 }): string {
+  if (c.source_profile_name) return `${c.name} (${c.source_profile_name})`
   if (!c.account_provider && !c.account_email) return c.name
   const source = c.account_provider ? providerLabel(c.account_provider) : null
 

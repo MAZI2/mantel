@@ -35,6 +35,9 @@ export interface SyncStatus {
 }
 
 export interface CalendarInfo {
+  source_profile_id?: string | null
+  source_calendar_id?: number | null
+  source_profile_name?: string | null
   id: number
   name: string
   is_local: boolean
@@ -53,6 +56,7 @@ export interface CalendarInfo {
 }
 
 export interface CalendarEvent {
+  important?: boolean
   id: number
   calendar_id: number
   calendar_name: string
@@ -77,6 +81,7 @@ export interface CalendarEvent {
 }
 
 export interface EventInput {
+  important?: boolean
   calendar_id: number
   title: string
   description?: string | null
@@ -158,6 +163,8 @@ export interface SharedList {
 }
 
 export interface AppSettings {
+  important_by_default: boolean
+  highlight_important: boolean
   hidden_calendar_ids: number[]
   first_day_of_week: number
   time_format_24h: boolean

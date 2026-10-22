@@ -1,3 +1,5 @@
+import { ImportantDefaultSetting } from './ImportantDefaultSetting'
+import { LinkedCalendarForm } from './LinkedCalendarForm'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -270,6 +272,7 @@ function CalendarsTab() {
                   .join(' · ') || '\u00a0'}
               </div>
             </div>
+            {c.source_profile_id ? <span className="syncstate">Linked</span> : (
             <select
               value={c.claimed_by_user_id ?? ''}
               onChange={(e) =>
@@ -286,10 +289,11 @@ function CalendarsTab() {
                 </option>
               ))}
             </select>
+            )}
             {/* Not a switch: syncing follows the claim. Assigning somebody a calendar
                 and wanting it to sync are the same wish, so this reports rather than
                 asks. Local calendars have nothing to sync with, so they say nothing. */}
-            {!c.is_local && (
+            {!c.is_local && !c.source_profile_id && (
               <span
                 className="syncstate"
                 data-on={c.sync_enabled}
@@ -302,9 +306,9 @@ function CalendarsTab() {
                 {c.sync_enabled ? 'Syncing' : 'Not synced'}
               </span>
             )}
-            {c.is_local && (
+            {(c.is_local || c.source_profile_id) && (
               <button className="btn btn--danger" onClick={() => deleteCal.mutate(c.id)}>
-                Delete
+                {c.source_profile_id ? 'Remove link' : 'Delete'}
               </button>
             )}
           </div>
@@ -331,6 +335,7 @@ function CalendarsTab() {
           Add
         </button>
       </div>
+      <LinkedCalendarForm />
     </section>
   )
 }
@@ -347,7 +352,9 @@ function DisplayTab() {
   return (
     <section className="panel">
       <h2>Display</h2>
-      <p className="hint">These settings are shared by everyone using this profile, except your colour theme and visible calendars.</p>
+      <p className="hint">These settings are shared by everyone using this profile, except your colour theme, visible calendars and importance preferences.</p>
+
+      <ImportantDefaultSetting />
 
       <div className="row">
         <div className="row__name row__name--static">Text size</div>

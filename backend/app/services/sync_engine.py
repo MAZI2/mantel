@@ -410,7 +410,11 @@ def _push_one(db: Session, cal: Calendar, event: Event) -> None:
             else:
                 raise
 
+    from . import importance
+
+    old_key = importance.event_key(event)
     event.remote_id = created.id or event.remote_id
+    importance.transfer(event, cal.id, old_key)
     event.remote_etag = created.etag
     event.remote_updated_at = created.updated
     event.sync_state = "synced"

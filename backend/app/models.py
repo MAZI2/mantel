@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -81,6 +82,7 @@ class Calendar(TimestampMixin, Base):
     __tablename__ = "calendars"
     __table_args__ = (
         UniqueConstraint("linked_account_id", "google_calendar_id", name="uq_account_gcal"),
+        Index("uq_calendar_source", "source_profile_id", "source_calendar_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -99,6 +101,10 @@ class Calendar(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL")
     )
 
+    # Links expose the original calendar through an authorized request; no event copies.
+    source_profile_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_calendar_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     sync_token: Mapped[str | None] = mapped_column(Text)
     # NULL on upgraded calendars triggers one snapshot to backfill existing event colors.
@@ -114,8 +120,12 @@ class Calendar(TimestampMixin, Base):
     )
 
     @property
+    def is_linked(self) -> bool:
+        return self.source_profile_id is not None
+
+    @property
     def is_local(self) -> bool:
-        return self.linked_account_id is None
+        return self.linked_account_id is None and not self.is_linked
 
     @property
     def writable(self) -> bool:

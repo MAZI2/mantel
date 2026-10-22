@@ -75,7 +75,7 @@ export function CalendarPage() {
   }
 
   return (
-    <div className="calpage">
+    <div className="calpage" data-highlight-important={settings?.highlight_important || undefined}>
       <header className="calpage__bar">
         <div className="calpage__titlewrap">
           <h1 className="calpage__title">{titleFor(display.range.start, display.range.end)}</h1>

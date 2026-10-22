@@ -104,6 +104,41 @@ def personal_calendar_visibility(
         return registry.get(ProfilePreference, key).hidden_calendar_ids
 
 
+def personal_boolean(identity: str, name: str, default: bool, value: bool | None = None) -> bool:
+    global_preference = name == "important_by_default"
+    model = PersonalPreference if global_preference else ProfilePreference
+    scope = current_profile.get()
+    if scope is None:
+        raise HTTPException(403, "No profile selected.")
+    key = identity if global_preference else (identity, scope.id)
+    with RegistrySession() as registry:
+        person = registry.get(Principal, identity)
+        if (
+            person is None
+            or not person.enabled
+            or not registry.get(Membership, (identity, scope.id))
+        ):
+            raise HTTPException(403, "No access to this profile.")
+        if value is not None:
+            values = {"identity": identity, name: value}
+            if not global_preference:
+                values["profile_id"] = scope.id
+            registry.execute(
+                insert(model)
+                .values(**values)
+                .on_conflict_do_update(
+                    index_elements=["identity"]
+                    if global_preference
+                    else ["identity", "profile_id"],
+                    set_={name: value},
+                )
+            )
+            registry.commit()
+        row = registry.get(model, key)
+        saved = getattr(row, name) if row else None
+        return default if saved is None else saved
+
+
 @router.get(
     "",
     summary="Get app settings",
@@ -122,6 +157,8 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
     values["hidden_calendar_ids"] = personal_calendar_visibility(
         request.state.principal.identity, values["hidden_calendar_ids"]
     )
+    for name, default in (("important_by_default", True), ("highlight_important", False)):
+        values[name] = personal_boolean(request.state.principal.identity, name, default)
     # Secrets are write-only over the API. Reporting whether one is set is enough
     # for the settings screen to render, and means a stored client secret and a
     # Home Assistant token can never be read back out of a settings response.
@@ -154,6 +191,9 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
     ),
 )
 def update_app_settings(payload: dict, request: Request, db: Session = Depends(get_db)) -> dict:
+    for name in ("important_by_default", "highlight_important"):
+        if name in payload and type(payload[name]) is not bool:
+            raise HTTPException(400, f"{name} must be true or false.")
     if "hidden_calendar_ids" in payload:
         ids = payload["hidden_calendar_ids"]
         if not isinstance(ids, list) or any(type(value) is not int or value < 1 for value in ids):
@@ -174,6 +214,10 @@ def update_app_settings(payload: dict, request: Request, db: Session = Depends(g
         personal_calendar_visibility(
             request.state.principal.identity, [], payload.pop("hidden_calendar_ids")
         )
+
+    for name in ("important_by_default", "highlight_important"):
+        if name in payload:
+            personal_boolean(request.state.principal.identity, name, False, payload.pop(name))
 
     # Encrypted at rest with the same key as the OAuth tokens. An empty string
     # means "leave it alone", so the settings form can post the whole object

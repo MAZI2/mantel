@@ -28,8 +28,8 @@ export function groupCalendarsBySource(calendars: CalendarInfo[]): CalendarGroup
     // Group on the account id, not the address: an Apple ID is very often the same
     // gmail address as a linked Google account, and keying on the address would
     // collapse two separate services into one heading.
-    const key = cal.is_local ? 'local' : `acct:${cal.linked_account_id}`
-    const label = cal.is_local
+    const key = cal.source_profile_id ? `profile:${cal.source_profile_id}` : cal.is_local ? 'local' : `acct:${cal.linked_account_id}`
+    const label = cal.source_profile_id ? `From ${cal.source_profile_name}` : cal.is_local
       ? 'Made here'
       : [providerLabel(cal.account_provider), cal.account_email].filter(Boolean).join(' · ')
 

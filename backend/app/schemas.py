@@ -58,6 +58,11 @@ class UserOut(UserBase):
 # --------------------------- Calendars ---------------------------------------
 
 
+class CalendarImport(BaseModel):
+    source_profile_id: str = Field(min_length=1, max_length=32)
+    source_calendar_id: int = Field(gt=0)
+
+
 class CalendarCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255, examples=["Soccer Season"])
     color_override: str | None = Field(default=None, examples=["#22c55e"])
@@ -87,6 +92,9 @@ class CalendarOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
+    source_profile_id: str | None = None
+    source_calendar_id: int | None = None
+    source_profile_name: str | None = None
     is_local: bool
     google_calendar_id: str | None
     linked_account_id: int | None
@@ -141,6 +149,7 @@ class EventBase(BaseModel):
 
 
 class EventCreate(EventBase):
+    important: bool | None = None
     calendar_id: int = Field(
         description="Which calendar to write to. Use GET /api/calendars to find one."
     )
@@ -155,6 +164,7 @@ class EventCreate(EventBase):
 
 
 class EventUpdate(BaseModel):
+    important: bool | None = None
     calendar_id: int | None = None
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
@@ -177,7 +187,12 @@ class EventUpdate(BaseModel):
         return None if v is None else _validate_hex(v)
 
 
+class ImportanceUpdate(BaseModel):
+    important: bool
+
+
 class EventOut(BaseModel):
+    important: bool = True
     model_config = ConfigDict(from_attributes=True)
     id: int
     calendar_id: int

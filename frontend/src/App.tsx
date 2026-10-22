@@ -1,3 +1,4 @@
+import { ImportantToggle } from './components/ImportantToggle'
 import { useEffect, useInsertionEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useSettings } from './api/hooks'
@@ -74,7 +75,7 @@ export function App() {
       <main className="shell__main">
         <Outlet />
       </main>
-      <ProfileNavigation session={session} activeId={activeId} />
+      <ProfileNavigation session={session} activeId={activeId} importanceToggle={<ImportantToggle />} />
       {!online && <div className="offline">Offline — showing the last known schedule</div>}
       <Screensaver />
     </div>

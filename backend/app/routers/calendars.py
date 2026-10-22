@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..db import get_db
+from ..db import get_db, profile_sessions
 from ..models import Calendar
-from ..schemas import CalendarCreate, CalendarOut, CalendarUpdate
+from ..profile_context import current_identity, current_profile, profile_context
+from ..profiles import RegistrySession, member_profiles, scope_for
+from ..schemas import CalendarCreate, CalendarImport, CalendarOut, CalendarUpdate
 from ..serializers import calendar_out
+from ..services import calendar_links
 from ..services.pullsignal import request_pull
 
 router = APIRouter(prefix="/calendars", tags=["calendars"])
@@ -39,7 +43,17 @@ def list_calendars(
         stmt = stmt.where(Calendar.claimed_by_user_id.is_(None))
     if user_id is not None:
         stmt = stmt.where(Calendar.claimed_by_user_id == user_id)
-    return [calendar_out(c) for c in db.scalars(stmt)]
+    result = []
+    for calendar in db.scalars(stmt):
+        if not calendar.is_linked:
+            result.append(calendar_out(calendar))
+            continue
+        try:
+            result.append(calendar_links.output(calendar))
+        except HTTPException as exc:
+            if exc.status_code not in (403, 404):
+                raise
+    return result
 
 
 @router.post(
@@ -59,9 +73,60 @@ def create_calendar(payload: CalendarCreate, db: Session = Depends(get_db)) -> C
     return calendar_out(cal)
 
 
+@router.get("/import-options")
+def import_options(db: Session = Depends(get_db)) -> list[dict]:
+    destination = current_profile.get()
+    with RegistrySession() as registry:
+        profiles = member_profiles(registry, current_identity.get())
+    existing = {
+        (cal.source_profile_id, cal.source_calendar_id)
+        for cal in db.scalars(select(Calendar).where(Calendar.source_profile_id.is_not(None)))
+    }
+    choices = []
+    for profile in profiles:
+        if profile.id == destination.id:
+            continue
+        scope = scope_for(profile)
+        with profile_context(scope), profile_sessions(scope.database_url)() as source:
+            for calendar in source.scalars(
+                select(Calendar).where(Calendar.source_profile_id.is_(None))
+            ):
+                if (profile.id, calendar.id) not in existing:
+                    choices.append(
+                        dict(
+                            profile_id=profile.id,
+                            profile_name=profile.name,
+                            calendar=calendar_out(calendar),
+                        )
+                    )
+    return choices
+
+
+@router.post("/import", response_model=CalendarOut, status_code=201)
+def import_calendar(payload: CalendarImport, db: Session = Depends(get_db)) -> CalendarOut:
+    if payload.source_profile_id == current_profile.get().id:
+        raise HTTPException(400, "Choose a calendar from another profile.")
+    link = Calendar(
+        source_profile_id=payload.source_profile_id,
+        source_calendar_id=payload.source_calendar_id,
+        name="Linked calendar",
+        sync_enabled=True,
+    )
+    with calendar_links.source_calendar(link):
+        pass
+    db.add(link)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "This calendar is already linked in this profile.") from exc
+    return calendar_links.output(link)
+
+
 @router.get("/{calendar_id}", response_model=CalendarOut, summary="Get one calendar")
 def get_calendar(calendar_id: int, db: Session = Depends(get_db)) -> CalendarOut:
-    return calendar_out(_get(db, calendar_id))
+    calendar = _get(db, calendar_id)
+    return calendar_links.output(calendar) if calendar.is_linked else calendar_out(calendar)
 
 
 @router.patch(
@@ -81,14 +146,24 @@ def update_calendar(
     calendar_id: int, payload: CalendarUpdate, db: Session = Depends(get_db)
 ) -> CalendarOut:
     cal = _get(db, calendar_id)
+    if cal.is_linked:
+        calendar_links.output(cal)  # Recheck source membership before reporting its settings.
+        raise HTTPException(400, "Manage calendar settings in the original profile.")
     changes = payload.model_dump(exclude_unset=True)
+    if cal.is_linked and "sync_enabled" in changes:
+        raise HTTPException(400, "Linked calendars use the original calendar sync setting.")
     if cal.is_local and changes.get("sync_enabled"):
         raise HTTPException(400, "Local calendars cannot sync to Google")
 
     # Claiming and syncing were two switches that always wanted the same answer, and
     # a calendar claimed but left un-synced is the confusing state: it shows a person's
     # name, and no events. Local calendars are left alone -- there is nothing to sync.
-    if "claimed_by_user_id" in changes and "sync_enabled" not in changes and not cal.is_local:
+    if (
+        "claimed_by_user_id" in changes
+        and "sync_enabled" not in changes
+        and not cal.is_local
+        and not cal.is_linked
+    ):
         changes["sync_enabled"] = changes["claimed_by_user_id"] is not None
 
     was_syncing = cal.sync_enabled
@@ -101,7 +176,7 @@ def update_calendar(
     if cal.sync_enabled and not was_syncing:
         request_pull()
     db.refresh(cal)
-    return calendar_out(cal)
+    return calendar_links.output(cal) if cal.is_linked else calendar_out(cal)
 
 
 @router.delete(
@@ -115,7 +190,7 @@ def update_calendar(
 )
 def delete_calendar(calendar_id: int, db: Session = Depends(get_db)) -> None:
     cal = _get(db, calendar_id)
-    if not cal.is_local:
+    if not cal.is_local and not cal.is_linked:
         raise HTTPException(400, "Google calendars cannot be deleted here; unclaim it instead")
     db.delete(cal)
     db.commit()

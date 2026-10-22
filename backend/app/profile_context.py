@@ -14,6 +14,9 @@ class ProfileScope:
     legacy: bool = False
 
 
+current_identity: ContextVar[str | None] = ContextVar("mantel_identity", default=None)
+
+
 current_profile: ContextVar[ProfileScope | None] = ContextVar("mantel_profile", default=None)
 
 

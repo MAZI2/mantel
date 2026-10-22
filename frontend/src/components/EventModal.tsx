@@ -1,7 +1,7 @@
 import { RecurringDeleteChoices } from './RecurringDeleteChoices'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useCalendars, useCreateEvent, useDeleteEvent, useUpdateEvent, useUsers } from '../api/hooks'
+import { useCalendars, useCreateEvent, useDeleteEvent, useSettings, useUpdateEvent, useUsers } from '../api/hooks'
 import type { CalendarEvent, DeletionScope } from '../api/types'
 import { calendarLabel, providerPossessive } from '../api/providers'
 import { pickableCalendars } from './pickableCalendars'
@@ -21,6 +21,8 @@ interface Props {
 
 
 export function EventModal({ event, defaultStart, onClose }: Props) {
+  const { data: settings } = useSettings()
+  const [important, setImportant] = useState(event?.important ?? settings?.important_by_default ?? true)
   const { data: calendars = [] } = useCalendars()
   const { data: users = [] } = useUsers()
   const create = useCreateEvent()
@@ -33,12 +35,14 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
   // One occurrence of a series is its own row at the provider, and the server refuses to
   // move those. The same test drives the "this occurrence only" note below.
   const isOccurrence = !!event?.recurring && !event.recurrence_rule
-  const calendarLocked = readOnly || isOccurrence
+  const isLinked = !!event && !!calendars.find((calendar) => calendar.id === event.calendar_id)?.source_profile_id
+  const calendarLocked = readOnly || isOccurrence || isLinked
 
   // Only calendars that can actually carry an event -- see pickableCalendars for why a
   // switched-off synced calendar would swallow one silently.
   const writable = pickableCalendars(calendars)
   const choices = isNew ? writable : pickableCalendars(calendars, event.calendar_id)
+    .filter((calendar) => !calendar.source_profile_id || calendar.id === event.calendar_id)
 
   const [title, setTitle] = useState(event?.title ?? '')
   const [location, setLocation] = useState(event?.location ?? '')
@@ -108,6 +112,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
 
     const body = {
       calendar_id: calendarId,
+      important,
       title: title.trim(),
       location: location.trim() || null,
       description: description.trim() || null,
@@ -184,9 +189,16 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
           />
         </label>
 
+        <label className="toggle">
+          <input type="checkbox" checked={important} onChange={(e) => setImportant(e.target.checked)} disabled={readOnly} />
+          Important for me
+        </label>
+        {isLinked && <p className="modal__note">Edits update the original calendar. Move events between calendars from the original profile.</p>}
+
         <label className="field">
           <span>Who is this for?</span>
           <select
+            aria-label="Who is this for?"
             value={profileId ?? ''}
             onChange={(e) => {
               const next = e.target.value === '' ? null : Number(e.target.value)
@@ -208,6 +220,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
         <label className="field">
           <span>Calendar</span>
           <select
+            aria-label="Calendar"
             value={calendarId ?? ''}
             onChange={(e) => setCalendarId(Number(e.target.value))}
             disabled={calendarLocked}

@@ -11,6 +11,8 @@ THEMES = ("midnight", "daylight", "hearth")
 
 DEFAULT_SETTINGS: dict[str, object] = {
     "hidden_calendar_ids": [],
+    "important_by_default": True,
+    "highlight_important": False,
     "first_day_of_week": 0,  # 0=Sunday, 1=Monday
     "time_format_24h": False,
     "home_timezone": "America/New_York",
@@ -66,9 +68,7 @@ def ensure_defaults(db: Session) -> None:
         if key not in existing:
             db.add(AppSetting(key=key, value={"value": value}))
 
-    has_local = db.execute(
-        select(Calendar.id).where(Calendar.linked_account_id.is_(None))
-    ).first()
+    has_local = db.execute(select(Calendar.id).where(Calendar.linked_account_id.is_(None))).first()
     if not has_local:
         db.add(Calendar(name="Family", linked_account_id=None, sync_enabled=False))
 

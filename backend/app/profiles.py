@@ -34,10 +34,11 @@ class Principal(RegistryBase):
 
 
 class PersonalPreference(RegistryBase):
-    # Retained as the migration seed for themes saved before profile scoping.
+    # The old theme remains a migration seed; defaults here apply across profiles.
     __tablename__ = "personal_preferences"
     identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
     theme: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    important_by_default: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class ProfilePreference(RegistryBase):
@@ -45,9 +46,19 @@ class ProfilePreference(RegistryBase):
     identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
     profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id"), primary_key=True)
     theme: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    highlight_important: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     hidden_calendar_ids: Mapped[list[int] | None] = mapped_column(
         JSON(none_as_null=True), nullable=True
     )
+
+
+class EventPreference(RegistryBase):
+    __tablename__ = "event_preferences"
+    identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
+    profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id"), primary_key=True)
+    calendar_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(1200), primary_key=True)
+    important: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class Membership(RegistryBase):
