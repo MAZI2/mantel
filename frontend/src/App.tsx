@@ -1,3 +1,4 @@
+import { CalendarPicker } from './components/CalendarPicker'
 import { ImportantToggle } from './components/ImportantToggle'
 import { useEffect, useInsertionEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
@@ -75,7 +76,8 @@ export function App() {
       <main className="shell__main">
         <Outlet />
       </main>
-      <ProfileNavigation session={session} activeId={activeId} importanceToggle={<ImportantToggle />} />
+      <ProfileNavigation session={session} activeId={activeId} importanceToggle={<ImportantToggle />}
+        calendarPicker={<CalendarPicker profileName={session.profiles.find((profile) => profile.id === activeId)?.name ?? 'Profile'} onCalendar={location.pathname.startsWith('/calendar')} />} />
       {!online && <div className="offline">Offline — showing the last known schedule</div>}
       <Screensaver />
     </div>

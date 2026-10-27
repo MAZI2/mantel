@@ -234,7 +234,8 @@ def _apply_remote_event(db: Session, cal: Calendar, item: RemoteEvent) -> int:
     existing.timezone = item.timezone
     existing.remote_etag = item.etag
     existing.recurring_event_id = item.recurring_event_id
-    existing.original_start_at = item.original_start
+    if item.original_start is not None or not existing.local_series_key:
+        existing.original_start_at = item.original_start
     existing.remote_updated_at = item.updated
     _apply_recurrence(existing, item)
     return 1
@@ -414,14 +415,28 @@ def _push_one(db: Session, cal: Calendar, event: Event) -> None:
 
     old_key = importance.event_key(event)
     event.remote_id = created.id or event.remote_id
+    if (
+        event.recurrence_rule
+        and event.local_series_key
+        and event.local_series_key != event.remote_id
+    ):
+        previous_series = event.local_series_key
+        for row in db.scalars(select(Event).where(Event.local_series_key == previous_series)):
+            row.local_series_key = event.remote_id
+        from ..models import EventDeletion
+
+        for task in db.scalars(
+            select(EventDeletion).where(EventDeletion.series_id == previous_series)
+        ):
+            task.series_id = event.remote_id
     importance.transfer(event, cal.id, old_key)
     event.remote_etag = created.etag
     event.remote_updated_at = created.updated
     event.sync_state = "synced"
     # A provider that expands series itself now owns this one; stop rendering our
     # copy of it, or every occurrence appears twice.
-    if event.recurrence_rule:
-        event.is_master = provider.expands_recurrence
+    event.is_master = bool(event.recurrence_rule and provider.expands_recurrence)
+    event.pending_recurrence_clear = None
     db.commit()
 
 
@@ -437,4 +452,6 @@ def _to_remote_event(event: Event) -> RemoteEvent:
         all_day=event.all_day,
         timezone=event.timezone,
         recurrence_rule=event.recurrence_rule,
+        clear_recurrence=bool(event.pending_recurrence_clear),
+        exdates=sorted(recurrence.excluded_starts(event)),
     )

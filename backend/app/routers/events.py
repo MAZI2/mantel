@@ -7,9 +7,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..models import Calendar, Event
-from ..schemas import EventCreate, EventOut, EventUpdate, ImportanceUpdate
+from ..schemas import EventCreate, EventLinkCreate, EventOut, EventUpdate, ImportanceUpdate
 from ..serializers import event_out
-from ..services import calendar_links, event_deletions, importance, recurrence
+from ..services import (
+    calendar_links,
+    event_deletions,
+    event_edits,
+    event_links,
+    importance,
+    recurrence,
+)
 from ..services.notify import calendar_changed
 from ..services.pushqueue import mark_pending, request_push
 from ..services.timezones import home_timezone, validate_timezone
@@ -231,6 +238,11 @@ def list_events(
         except HTTPException as exc:
             if exc.status_code not in (403, 404):
                 raise
+    result.extend(
+        event_links.list_events(
+            db, window_start, window_end, selected_calendars, selected_users, q, _event_out
+        )
+    )
     result.sort(key=lambda event: (event.start_at, event.id))
     return result
 
@@ -286,6 +298,10 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> EventOu
 
 @router.get("/{event_id}", response_model=EventOut, summary="Get one event")
 def get_event(event_id: int, db: Session = Depends(get_db)) -> EventOut:
+    if event_links.is_reference(event_id):
+        with event_links.source(db, event_id) as (ref, target, source_db, original):
+            instance = event_links.occurrence(source_db, ref, original)
+            return event_links.output(ref, target, _event_out(source_db, instance))
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
@@ -293,6 +309,134 @@ def get_event(event_id: int, db: Session = Depends(get_db)) -> EventOut:
                 raise HTTPException(404, "Event not found.")
             return calendar_links.event_output(link, get_event(original, source_db))
     return _event_out(db, _load(db, event_id))
+
+
+@router.get("/{event_id}/edit-context")
+def edit_context(event_id: int, db: Session = Depends(get_db)) -> dict:
+    if event_links.is_reference(event_id):
+        with event_links.source(db, event_id) as (_, _, source_db, original):
+            return edit_context(original.id, source_db)
+    if event_id < 0:
+        link, original = calendar_links.event_source(db, event_id)
+        with calendar_links.source_calendar(link) as (source_db, source_cal, _):
+            if _load(source_db, original).calendar_id != source_cal.id:
+                raise HTTPException(404, "Event not found.")
+            return edit_context(original, source_db)
+    event = _load(db, event_id)
+    if not (event.recurrence_rule or event.recurring_event_id or event.local_series_key):
+        return {"recurrence_rule": None}
+    master = event_edits.master_for(db, event, refresh=True)
+    rule = master.recurrence_rule
+    # Hydrating the master is a read cache; it must not enqueue a provider update.
+    db.commit()
+    return {"recurrence_rule": rule}
+
+
+def _linking_enabled():
+    from ..profile_context import current_identity
+    from .settings import personal_boolean
+
+    if not personal_boolean(current_identity.get(), "enable_event_linking", False):
+        raise HTTPException(403, "Enable event linking in Settings first.")
+
+
+@router.get("/{event_id}/link-options")
+def event_link_options(event_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    _linking_enabled()
+    get_event(event_id, db)  # Resolve source access before listing any destinations.
+    from ..db import profile_sessions
+    from ..profile_context import current_identity, profile_context
+    from ..profiles import RegistrySession, member_profiles, scope_for
+    from ..serializers import calendar_out
+
+    choices = []
+    with RegistrySession() as registry:
+        profiles = member_profiles(registry, current_identity.get())
+    for profile in profiles:
+        scope = scope_for(profile)
+        with profile_context(scope), profile_sessions(scope.database_url)() as target:
+            for cal in target.scalars(select(Calendar)):
+                if not cal.is_linked and cal.writable:
+                    choices.append(
+                        dict(
+                            profile_id=profile.id,
+                            profile_name=profile.name,
+                            calendar=calendar_out(cal),
+                        )
+                    )
+    return choices
+
+
+@router.post("/{event_id}/links", status_code=201)
+def link_event(event_id: int, payload: EventLinkCreate, db: Session = Depends(get_db)) -> dict:
+    _linking_enabled()
+    return _link_event(event_id, payload, db)
+
+
+def _link_event(event_id, payload, db):
+    from ..profile_context import current_profile
+    from ..profiles import EventReference, RegistrySession
+
+    if event_links.is_reference(event_id):
+        with event_links.source(db, event_id) as (ref, _, source_db, original):
+            return _link_event(
+                original.id,
+                payload.model_copy(
+                    update={"occurrence_start": payload.occurrence_start or ref.occurrence_start}
+                ),
+                source_db,
+            )
+    if event_id < 0:
+        link, original = calendar_links.event_source(db, event_id)
+        with calendar_links.source_calendar(link) as (source_db, source_cal, _):
+            if _load(source_db, original).calendar_id != source_cal.id:
+                raise HTTPException(404, "Event not found.")
+            return _link_event(original, payload, source_db)
+    event = _load(db, event_id)
+    source_profile = current_profile.get().id
+    if payload.profile_id == source_profile and payload.calendar_id == event.calendar_id:
+        raise HTTPException(400, "This event is already in that calendar.")
+    moment = to_utc(payload.occurrence_start) if payload.occurrence_start else None
+    if event.recurrence_rule:
+        if moment is None or moment not in recurrence.occurrences(
+            event, moment, moment + timedelta(seconds=1), home_timezone(db)
+        ):
+            raise HTTPException(400, "Choose an occurrence of this series to link.")
+    elif event.recurring_event_id:
+        moment = event.original_start_at or event.start_at
+    else:
+        moment = None
+    target_link = Calendar(
+        source_profile_id=payload.profile_id,
+        source_calendar_id=payload.calendar_id,
+        name="Event link",
+    )
+    with calendar_links.source_calendar(target_link) as (_, target_cal, _):
+        if not target_cal.writable:
+            raise HTTPException(403, "The destination calendar is read-only.")
+    with RegistrySession() as registry:
+        conditions = (
+            EventReference.destination_profile_id == payload.profile_id,
+            EventReference.destination_calendar_id == payload.calendar_id,
+            EventReference.source_profile_id == source_profile,
+            EventReference.source_calendar_id == event.calendar_id,
+            EventReference.event_key == importance.event_key(event),
+            EventReference.occurrence_start == moment,
+        )
+        existing = registry.scalar(select(EventReference).where(*conditions))
+        if existing:
+            raise HTTPException(409, "This event is already linked to that calendar.")
+        ref = EventReference(
+            destination_profile_id=payload.profile_id,
+            destination_calendar_id=payload.calendar_id,
+            source_profile_id=source_profile,
+            source_calendar_id=event.calendar_id,
+            event_key=importance.event_key(event),
+            occurrence_start=moment,
+        )
+        registry.add(ref)
+        registry.commit()
+        return {"id": event_links.identifier(ref)}
 
 
 # What a moved event carries over. Everything a person can see or set, and nothing that
@@ -398,6 +542,13 @@ def _move_event(db: Session, ev: Event, target: Calendar, changes: dict) -> Even
     ),
 )
 def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_db)) -> EventOut:
+    if event_links.is_reference(event_id):
+        with event_links.source(db, event_id) as (ref, target, source_db, original):
+            if payload.calendar_id is not None and payload.calendar_id != target.id:
+                raise HTTPException(400, "Move linked events from their original profile.")
+            patch = payload.model_copy(update={"calendar_id": original.calendar_id})
+            result = update_event(original.id, patch, source_db)
+            return event_links.output(ref, target, result)
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
@@ -413,6 +564,8 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
 
     changes = payload.model_dump(exclude_unset=True)
     important = changes.pop("important", None)
+    edit_scope = changes.pop("edit_scope", None)
+    moment = changes.pop("occurrence_start", None)
     new_calendar_id = changes.pop("calendar_id", None)
     moving = new_calendar_id is not None and new_calendar_id != ev.calendar_id
     target = _move_target(db, ev, new_calendar_id) if moving else None
@@ -424,6 +577,42 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
             changes["recurrence_rule"] = recurrence.validate(changes["recurrence_rule"])
         except recurrence.RecurrenceError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    if edit_scope is not None:
+        if target is not None and edit_scope != "all":
+            raise HTTPException(
+                400, "Choose all events in the series when moving to another calendar."
+            )
+        old_calendar, old_key = ev.calendar_id, importance.event_key(ev)
+        try:
+            ev = event_edits.prepare(
+                db, ev, edit_scope, to_utc(moment) if moment else None, changes
+            )
+        except recurrence.RecurrenceError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        ev.recurrence_end = recurrence.series_end(
+            ev.recurrence_rule,
+            ev.start_at,
+            ev.end_at - ev.start_at,
+            None if ev.all_day else ev.timezone,
+        )
+        db.commit()
+        event_links.transfer(
+            ev,
+            old_calendar,
+            old_key,
+            moment=to_utc(moment),
+            scope=edit_scope,
+            delta=getattr(ev, "_reference_shift", None),
+            conversion=getattr(ev, "_reference_conversion", None),
+        )
+        if target is not None:
+            ev = _move_event(db, ev, target, {})
+        importance.transfer(ev, old_calendar, old_key, references=False)
+        importance.values([ev], important)
+        request_push()
+        calendar_changed(db)
+        return _event_out(db, _load(db, ev.id))
 
     if target is not None:
         moved = _move_event(db, ev, target, changes)
@@ -457,6 +646,11 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
 def update_importance(
     event_id: int, payload: ImportanceUpdate, db: Session = Depends(get_db)
 ) -> EventOut:
+    if event_links.is_reference(event_id):
+        with event_links.source(db, event_id) as (ref, target, source_db, original):
+            return event_links.output(
+                ref, target, update_importance(original.id, payload, source_db)
+            )
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
@@ -487,6 +681,9 @@ def delete_event(
     timezone: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> None:
+    if event_links.is_reference(event_id):
+        with event_links.source(db, event_id) as (_, _, source_db, original):
+            return delete_event(original.id, scope, occurrence_start, timezone, source_db)
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
@@ -497,7 +694,7 @@ def delete_event(
     if not ev.calendar.writable:
         raise HTTPException(403, _read_only(ev.calendar))
 
-    if scope is not None and (ev.recurrence_rule or ev.recurring_event_id):
+    if scope is not None and (ev.recurrence_rule or ev.recurring_event_id or ev.local_series_key):
         if ev.recurrence_rule and scope != "all" and occurrence_start is None:
             raise HTTPException(400, "Choose the occurrence to delete.")
         moment = (

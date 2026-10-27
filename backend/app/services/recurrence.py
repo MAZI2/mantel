@@ -217,6 +217,7 @@ def materialise(
             location=event.location,
             color_override=event.color_override,
             remote_color=event.remote_color,
+            local_series_key=event.local_series_key,
             original_start_at=start,
             start_at=start,
             end_at=start + duration,

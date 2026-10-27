@@ -224,6 +224,9 @@ def test_registry_upgrade_adds_nullable_visibility_without_losing_saved_themes(t
         assert set(applied) == {
             "profile_preferences.hidden_calendar_ids",
             "profile_preferences.highlight_important",
+            "profile_preferences.enable_event_linking",
+            "profile_preferences.hold_to_create",
+            "profile_preferences.show_important_counts",
         }
         column = next(
             c

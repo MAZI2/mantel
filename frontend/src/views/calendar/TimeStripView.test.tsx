@@ -39,7 +39,6 @@ const render = (events: CalendarEvent[] = [], kind: 'week' | '3day' = 'week') =>
       use24h={false}
       hourHeight={64}
       onSelectEvent={() => {}}
-      onSelectSlot={() => {}}
     />,
   )
 
@@ -100,9 +99,9 @@ describe('TimeStripView', () => {
     expect(html).not.toContain('Far away')
   })
 
-  it('keeps an empty slot and an event as separate controls', () => {
+  it('keeps empty hours passive while events remain buttons', () => {
     const html = render([event({})])
-    expect(html).toContain('aria-label="Add event Thu 15 8a"')
+    expect(html).toContain('aria-label="Thu 15 8a"')
     expect(html).toMatch(/<button class="event-block"[^>]*>/)
   })
 

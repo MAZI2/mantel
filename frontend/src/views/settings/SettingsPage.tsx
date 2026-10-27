@@ -1,3 +1,4 @@
+import { OptionalEventSettings } from './OptionalEventSettings'
 import { ImportantDefaultSetting } from './ImportantDefaultSetting'
 import { LinkedCalendarForm } from './LinkedCalendarForm'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -352,9 +353,10 @@ function DisplayTab() {
   return (
     <section className="panel">
       <h2>Display</h2>
-      <p className="hint">These settings are shared by everyone using this profile, except your colour theme, visible calendars and importance preferences.</p>
+      <p className="hint">These settings are shared by everyone using this profile, except your colour theme, visible calendars and personal event options.</p>
 
       <ImportantDefaultSetting />
+      <OptionalEventSettings />
 
       <div className="row">
         <div className="row__name row__name--static">Text size</div>

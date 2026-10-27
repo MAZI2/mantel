@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -164,6 +165,8 @@ class EventCreate(EventBase):
 
 
 class EventUpdate(BaseModel):
+    edit_scope: Literal["this", "future", "all"] | None = None
+    occurrence_start: datetime | None = None
     important: bool | None = None
     calendar_id: int | None = None
     title: str | None = Field(default=None, min_length=1, max_length=500)
@@ -187,11 +190,18 @@ class EventUpdate(BaseModel):
         return None if v is None else _validate_hex(v)
 
 
+class EventLinkCreate(BaseModel):
+    profile_id: str = Field(min_length=1, max_length=32)
+    calendar_id: int = Field(gt=0)
+    occurrence_start: datetime | None = None
+
+
 class ImportanceUpdate(BaseModel):
     important: bool
 
 
 class EventOut(BaseModel):
+    linked_event: bool = False
     important: bool = True
     model_config = ConfigDict(from_attributes=True)
     id: int

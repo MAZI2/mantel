@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from ..models import Calendar, Event, EventDeletion
@@ -12,7 +12,7 @@ from .providers.base import ProviderError, RemoteEvent
 
 
 def series_key(event: Event) -> str | None:
-    return event.recurring_event_id or event.remote_id
+    return event.local_series_key or event.recurring_event_id or event.remote_id
 
 
 def same_series(task: EventDeletion, event: Event) -> bool:
@@ -35,6 +35,8 @@ def original_start(event: Event) -> datetime:
 
 
 def targets(task: EventDeletion, event: Event) -> bool:
+    if task.exempt_event_id is not None and event.id == task.exempt_event_id:
+        return False
     if not same_series(task, event):
         return False
     if task.scope == "all":
@@ -66,7 +68,16 @@ def apply_locally(db: Session, task: EventDeletion, master: Event | None) -> Non
             )
     for row in db.scalars(select(Event).where(Event.calendar_id == task.calendar_id)):
         if targets(task, row):
-            db.delete(row)
+            if (
+                row.local_series_key
+                and row.remote_id
+                and not row.recurring_event_id
+                and not row.recurrence_rule
+                and not row.calendar.is_local
+            ):
+                row.sync_state = "pending_delete"
+            else:
+                db.delete(row)
 
 
 def queue_deletion(
@@ -74,7 +85,9 @@ def queue_deletion(
     event: Event,
     scope: str,
     moment: datetime,
-) -> None:
+    *,
+    commit: bool = True,
+) -> EventDeletion:
     key = series_key(event)
     master = (
         event
@@ -82,7 +95,7 @@ def queue_deletion(
         else db.scalar(
             select(Event).where(
                 Event.calendar_id == event.calendar_id,
-                Event.google_event_id == key,
+                or_(Event.google_event_id == key, Event.local_series_key == key),
                 Event.recurrence_rule.is_not(None),
             )
         )
@@ -111,7 +124,9 @@ def queue_deletion(
             )
         )
     apply_locally(db, task, master)
-    db.commit()
+    if commit:
+        db.commit()
+    return task
 
 
 def blocks_remote(db: Session, cal: Calendar, item: RemoteEvent) -> bool:
@@ -176,7 +191,7 @@ def push_pending(db: Session, provider_factory) -> int:
             task.completed_at = utcnow_naive()
             # Clear any old snapshot rows that arrived before this command was queued.
             for row in db.scalars(select(Event).where(Event.calendar_id == cal.id)):
-                if targets(task, row):
+                if targets(task, row) and row.sync_state != "pending_delete":
                     db.delete(row)
             cal.sync_error = None
             db.commit()

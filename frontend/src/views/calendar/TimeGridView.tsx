@@ -1,6 +1,7 @@
 import { format, isToday } from 'date-fns'
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import type { CalendarEvent } from '../../api/types'
+import { useHoldToCreate, type DraftRange } from './useHoldToCreate'
 import { overlapsDay, startOfLocalDay } from './overlap'
 
 interface Props {
@@ -10,8 +11,10 @@ interface Props {
   dayEndHour: number
   use24h: boolean
   hourHeight: number
+  showImportantCounts?: boolean
+  holdToCreate?: boolean
   onSelectEvent: (e: CalendarEvent) => void
-  onSelectSlot: (start: Date) => void
+  onSelectSlot: (start: Date, end?: Date) => void
 }
 
 /** Below this height a block cannot show a title, start and end on separate lines.
@@ -29,8 +32,11 @@ export function TimeGridView({
   hourHeight,
   onSelectEvent,
   onSelectSlot,
+  showImportantCounts = false,
+  holdToCreate = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const selection = useHoldToCreate(scrollRef, days, dayStartHour, dayEndHour, hourHeight, holdToCreate, onSelectSlot)
   const hours = Array.from({ length: dayEndHour - dayStartHour }, (_, i) => dayStartHour + i)
 
   useLayoutEffect(() => {
@@ -45,12 +51,15 @@ export function TimeGridView({
     <div className="timegrid" style={{ ['--days' as string]: days.length }}>
       <div className="timegrid__head">
         <div className="timegrid__gutter-head" />
-        {days.map((day) => (
-          <div key={day.toISOString()} className="timegrid__dayhead" data-today={isToday(day)}>
+        {days.map((day) => {
+          const count = events.filter((event) => event.important !== false && overlapsDay(event, day)).length
+          return <div key={day.toISOString()} className="timegrid__dayhead" data-today={isToday(day)}>
             <div className="timegrid__dayname">{format(day, 'EEE')}</div>
-            <div className="timegrid__daynum">{format(day, 'd')}</div>
+            <div className="timegrid__daynum"><span className="timegrid__date-number">{format(day, 'd')}</span>
+              {showImportantCounts && count > 0 && <span className="timegrid__important-count" aria-label={`${count} important events`}>{count}</span>}
+            </div>
           </div>
-        ))}
+        })}
       </div>
 
       {allDay.length > 0 && (
@@ -64,7 +73,7 @@ export function TimeGridView({
         </div>
       )}
 
-      <div className="timegrid__body" ref={scrollRef}>
+      <div className="timegrid__body" ref={scrollRef} data-hold-to-create={holdToCreate || undefined} {...selection.handlers}>
         <HourGutter hours={hours} hourHeight={hourHeight} use24h={use24h} />
         {days.map((day) => (
           <DayColumn
@@ -76,7 +85,7 @@ export function TimeGridView({
             hourHeight={hourHeight}
             use24h={use24h}
             onSelectEvent={onSelectEvent}
-            onSelectSlot={onSelectSlot}
+            draft={selection.draft}
           />
         ))}
       </div>
@@ -112,9 +121,9 @@ interface ColumnProps {
   hourHeight: number
   use24h: boolean
   /** Far from the view in the scrolling strip: same height, nothing inside. */
+  draft?: DraftRange | null
   placeholder?: boolean
   onSelectEvent: (e: CalendarEvent) => void
-  onSelectSlot: (start: Date) => void
 }
 
 /** One day's hour slots, events and now-line. Shared by Day view and the scrolling strip
@@ -127,8 +136,8 @@ export function DayColumn({
   hourHeight,
   use24h,
   placeholder,
+  draft,
   onSelectEvent,
-  onSelectSlot,
 }: ColumnProps) {
   const positioned = useMemo(
     () =>
@@ -156,12 +165,11 @@ export function DayColumn({
   return (
     <div className="timegrid__col" data-today={isToday(day)} style={{ ['--hour-height' as string]: `${hourHeight}px` }}>
       {hours.map((h) => (
-        <button
+        <div
           key={h}
           className="timegrid__slot"
           style={{ height: hourHeight }}
-          aria-label={`Add event ${format(day, 'EEE d')} ${formatHour(h, use24h)}`}
-          onClick={() => onSelectSlot(withHour(day, h))}
+          aria-label={`${format(day, 'EEE d')} ${formatHour(h, use24h)}`}
         />
       ))}
       {positioned.map(({ event, top, height, left, width }) => (
@@ -189,6 +197,12 @@ export function DayColumn({
           <span className="event-block__end">{formatTime(new Date(event.end_at), use24h)}</span>
         </button>
       ))}
+      {draft && draft.start < new Date(new Date(day).setDate(day.getDate() + 1)) && draft.end > day && (
+        <div className="event-draft" aria-label="New event duration" style={{
+          top: (draft.start.toDateString() === day.toDateString() ? draft.start.getHours() + draft.start.getMinutes() / 60 - dayStartHour : 0) * hourHeight,
+          bottom: (draft.end.toDateString() === day.toDateString() ? hours.length + dayStartHour - draft.end.getHours() - draft.end.getMinutes() / 60 : 0) * hourHeight,
+        }}>{formatTime(draft.start, use24h)} – {formatTime(draft.end, use24h)}</div>
+      )}
       {isToday(day) && <NowLine dayStartHour={dayStartHour} hourHeight={hourHeight} />}
     </div>
   )
@@ -228,12 +242,6 @@ function NowLine({ dayStartHour, hourHeight }: { dayStartHour: number; hourHeigh
   const top = (now.getHours() + now.getMinutes() / 60 - dayStartHour) * hourHeight
   if (top < 0) return null
   return <div className="nowline" style={{ top }} />
-}
-
-export function withHour(day: Date, hour: number): Date {
-  const d = new Date(day)
-  d.setHours(hour, 0, 0, 0)
-  return d
 }
 
 interface Positioned {

@@ -479,3 +479,36 @@ def test_all_day_scopes_survive_icloud_roundtrip(client, db, provider, icloud, s
     sync_engine.push_pending(db)
     sync_engine.pull_calendar(db, icloud)
     assert [event["start_at"][8:10] for event in listed(client)] == days
+
+
+@pytest.mark.parametrize(
+    "scope,titles",
+    [
+        ("this", ["Swimming", "Changed", "Swimming", "Swimming"]),
+        ("future", ["Swimming", "Changed", "Changed", "Changed"]),
+        ("all", ["Changed"] * 4),
+    ],
+)
+def test_scoped_edits_survive_icloud_roundtrip(client, db, provider, icloud, server, scope, titles):
+    server.add_event("swim.ics", series())
+    sync_engine.pull_calendar(db, icloud)
+    selected = listed(client)[1]
+    result = client.patch(
+        f"/api/events/{selected['id']}",
+        json=dict(
+            edit_scope=scope,
+            occurrence_start=selected["original_start_at"],
+            title="Changed",
+            start_at="2026-08-10T19:00:00Z",
+            end_at="2026-08-10T20:00:00Z",
+        ),
+    )
+    assert result.status_code == 200, result.text
+    assert [row["title"] for row in listed(client)] == titles
+    db.expire_all()
+    assert sync_engine.push_pending(db) == (1 if scope == "all" else 2)
+    sync_engine.pull_calendar(db, icloud)
+    assert [row["title"] for row in listed(client)] == titles
+    assert [row["start_at"][11:16] for row in listed(client)] == [
+        "19:00" if title == "Changed" else "17:00" for title in titles
+    ]

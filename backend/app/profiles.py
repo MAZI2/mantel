@@ -1,9 +1,20 @@
 """Server-wide identities and access; each profile's application data lives separately."""
 
 import uuid
+from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, create_engine, event, select
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    create_engine,
+    event,
+    select,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import get_settings
@@ -46,6 +57,9 @@ class ProfilePreference(RegistryBase):
     identity: Mapped[str] = mapped_column(ForeignKey("principals.identity"), primary_key=True)
     profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id"), primary_key=True)
     theme: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    enable_event_linking: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    show_important_counts: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    hold_to_create: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     highlight_important: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     hidden_calendar_ids: Mapped[list[int] | None] = mapped_column(
         JSON(none_as_null=True), nullable=True
@@ -59,6 +73,19 @@ class EventPreference(RegistryBase):
     calendar_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     event_key: Mapped[str] = mapped_column(String(1200), primary_key=True)
     important: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+
+class EventReference(RegistryBase):
+    """A single live event reference; no private event content is copied."""
+
+    __tablename__ = "event_references"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    destination_profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id"))
+    destination_calendar_id: Mapped[int] = mapped_column(Integer)
+    source_profile_id: Mapped[str] = mapped_column(ForeignKey("profiles.id"))
+    source_calendar_id: Mapped[int] = mapped_column(Integer)
+    event_key: Mapped[str] = mapped_column(String(1200))
+    occurrence_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Membership(RegistryBase):

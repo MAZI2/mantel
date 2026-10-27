@@ -1,3 +1,6 @@
+import { useQuery } from '@tanstack/react-query'
+import { useApi } from '../api/client'
+import { RecurringEditChoices } from './RecurringEditChoices'
 import { RecurringDeleteChoices } from './RecurringDeleteChoices'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -16,11 +19,12 @@ import { PALETTE } from '../views/settings/palette'
 interface Props {
   event: CalendarEvent | null
   defaultStart: Date | null
+  defaultEnd?: Date | null
   onClose: () => void
 }
 
 
-export function EventModal({ event, defaultStart, onClose }: Props) {
+export function EventModal({ event, defaultStart, defaultEnd, onClose }: Props) {
   const { data: settings } = useSettings()
   const [important, setImportant] = useState(event?.important ?? settings?.important_by_default ?? true)
   const { data: calendars = [] } = useCalendars()
@@ -28,14 +32,19 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
   const create = useCreateEvent()
   const update = useUpdateEvent()
   const remove = useDeleteEvent()
+  const [choosingEdit, setChoosingEdit] = useState(false)
+  const api = useApi()
+  const context = useQuery({ queryKey: ['event-edit-context', event?.id], enabled: !!event?.recurring,
+    queryFn: () => api.get<{ recurrence_rule: string | null }>(`/events/${event!.id}/edit-context`) })
+  const [repeatChanged, setRepeatChanged] = useState(false)
   const [choosingDelete, setChoosingDelete] = useState(false)
 
   const isNew = event === null
   const readOnly = event !== null && !event.editable
   // One occurrence of a series is its own row at the provider, and the server refuses to
-  // move those. The same test drives the "this occurrence only" note below.
+  // move those independently between calendars.
   const isOccurrence = !!event?.recurring && !event.recurrence_rule
-  const isLinked = !!event && !!calendars.find((calendar) => calendar.id === event.calendar_id)?.source_profile_id
+  const isLinked = !!event?.linked_event || (!!event && !!calendars.find((calendar) => calendar.id === event.calendar_id)?.source_profile_id)
   const calendarLocked = readOnly || isOccurrence || isLinked
 
   // Only calendars that can actually carry an event -- see pickableCalendars for why a
@@ -72,13 +81,15 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
     event?.all_day ? allDayInput(event.end_at, true) : toLocalInput(
       event
         ? new Date(event.end_at)
-        : new Date((defaultStart ?? new Date()).getTime() + DEFAULT_MINUTES * 60_000),
+        : defaultEnd ?? new Date((defaultStart ?? new Date()).getTime() + DEFAULT_MINUTES * 60_000),
     ),
   )
   // An existing event's end was chosen by somebody; a new one's is only a default.
-  const [endEdited, setEndEdited] = useState(!isNew)
+  const [endEdited, setEndEdited] = useState(!isNew || !!defaultEnd)
   const [error, setError] = useState<string | null>(null)
-  const [repeat, setRepeat] = useState(() => parseRule(event?.recurrence_rule))
+  const [repeatSelection, setRepeat] = useState<ReturnType<typeof parseRule> | null>(null)
+  const originalRule = context.data?.recurrence_rule ?? event?.recurrence_rule
+  const repeat = repeatSelection ?? parseRule(originalRule)
 
   useEffect(() => {
     // Calendars arrive after the first render, so the opening choice has to be made
@@ -101,7 +112,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
 
   const busy = create.isPending || update.isPending || remove.isPending
 
-  const submit = async () => {
+  const submit = async (scope?: DeletionScope) => {
     setError(null)
     if (!title.trim()) return setError('Give the event a title.')
     if (calendarId === null) return setError('No writable calendar available.')
@@ -110,6 +121,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
     const endISO = allDay ? utcMidnight(end, 1) : new Date(end).toISOString()
     if (endISO <= startISO) return setError('The end time must be after the start time.')
 
+    if (event?.recurring && !scope) { setChoosingEdit(true); return }
     const body = {
       calendar_id: calendarId,
       important,
@@ -121,7 +133,8 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
       end_at: endISO,
       all_day: allDay,
       timezone: allDay ? null : event?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-      recurrence_rule: buildRule(repeat.freq as Freq, repeat.byday, repeat.until),
+      recurrence_rule: repeatChanged || isNew ? buildRule(repeat.freq as Freq, repeat.byday, repeat.until) : originalRule,
+      ...(scope ? { edit_scope: scope, occurrence_start: event!.original_start_at || event!.start_at } : {}),
     }
     try {
       if (isNew) {
@@ -171,7 +184,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
 
         {event?.recurring && !event.recurrence_rule && (
           <p className="modal__note">
-            This is one occurrence of a repeating event. Changes apply to this occurrence only.
+            This is one occurrence of a repeating event. Choose which occurrences to update when you save.
           </p>
         )}
         {event?.recurrence_text && (
@@ -184,38 +197,31 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             disabled={readOnly}
-            autoFocus={isNew}
             placeholder="Soccer practice"
           />
         </label>
 
-        <label className="toggle">
-          <input type="checkbox" checked={important} onChange={(e) => setImportant(e.target.checked)} disabled={readOnly} />
-          Important for me
-        </label>
+        <div className="event-flags">
+          <label className="toggle">
+            <input type="checkbox" checked={important} onChange={(e) => setImportant(e.target.checked)} disabled={readOnly} />
+            Important for me
+          </label>
+          <label className="toggle">
+            <input type="checkbox" checked={allDay} disabled={readOnly} onChange={() => {
+              if (allDay) {
+                setStart(start ? `${start}T00:00` : '')
+                setEnd(end ? `${utcMidnight(end, 1).slice(0, 10)}T00:00` : '')
+              } else {
+                setStart(start.slice(0, 10))
+                setEnd(end.slice(0, 10))
+              }
+              setEndEdited(true)
+              setAllDay(!allDay)
+            }} />
+            All day
+          </label>
+        </div>
         {isLinked && <p className="modal__note">Edits update the original calendar. Move events between calendars from the original profile.</p>}
-
-        <label className="field">
-          <span>Who is this for?</span>
-          <select
-            aria-label="Who is this for?"
-            value={profileId ?? ''}
-            onChange={(e) => {
-              const next = e.target.value === '' ? null : Number(e.target.value)
-              setProfileId(next)
-              // Their calendars are a different set, so the old choice may not be in
-              // it. Land on their first one rather than leaving a stale selection.
-              setCalendarId(calendarsForProfile(choices, next)[0]?.id ?? null)
-            }}
-            disabled={calendarLocked}
-          >
-            {profiles.map((p) => (
-              <option key={p.id ?? 'household'} value={p.id ?? ''}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
 
         <label className="field">
           <span>Calendar</span>
@@ -243,14 +249,10 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
         <fieldset className="event-colour" disabled={readOnly}>
           <legend>Event colour</legend>
           <div className="event-colour__choices">
-            <button
-              type="button"
-              className="chipbtn"
-              aria-pressed={colorOverride === null}
-              onClick={() => setColorOverride(null)}
-            >
-              Default colour
-            </button>
+            <button type="button" className="event-colour__swatch"
+              style={{ background: event?.remote_color ?? choices.find((c) => c.id === calendarId)?.color ?? '#3b82f6' }}
+              aria-label="Default event colour" title="Default colour" aria-pressed={colorOverride === null}
+              onClick={() => setColorOverride(null)} />
             {PALETTE.map((color) => (
               <button
                 key={color}
@@ -262,13 +264,16 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
                 onClick={() => setColorOverride(color)}
               />
             ))}
-            <input
-              type="color"
-              className="event-colour__custom"
-              aria-label="Custom event colour"
-              value={colorOverride ?? event?.remote_color ?? choices.find((c) => c.id === calendarId)?.color ?? '#3b82f6'}
-              onChange={(e) => setColorOverride(e.target.value)}
-            />
+            <label className="event-colour__more" title="More colours">
+              <span aria-hidden="true">+</span>
+              <input
+                type="color"
+                className="event-colour__custom"
+                aria-label="Custom event colour"
+                value={colorOverride ?? event?.remote_color ?? choices.find((c) => c.id === calendarId)?.color ?? '#3b82f6'}
+                onChange={(e) => setColorOverride(e.target.value)}
+              />
+            </label>
           </div>
         </fieldset>
 
@@ -300,59 +305,68 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
           </label>
         </div>
 
-        <RecurrencePicker
-          freq={repeat.freq}
-          byday={repeat.byday}
-          until={repeat.until}
-          start={new Date(allDay ? `${start}T00:00` : start)}
-          disabled={readOnly}
-          onChange={setRepeat}
-        />
+        <details className="event-more">
+          <summary>More</summary>
+          <label className="field">
+            <span>Who is this for?</span>
+            <select
+              aria-label="Who is this for?"
+              value={profileId ?? ''}
+              onChange={(e) => {
+                const next = e.target.value === '' ? null : Number(e.target.value)
+                setProfileId(next)
+                // Their calendars are a different set, so the old choice may not be in
+                // it. Land on their first one rather than leaving a stale selection.
+                setCalendarId(calendarsForProfile(choices, next)[0]?.id ?? null)
+              }}
+              disabled={calendarLocked}
+            >
+              {profiles.map((p) => (
+                <option key={p.id ?? 'household'} value={p.id ?? ''}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <button
-          className={`toggle ${allDay ? 'toggle--on' : ''}`}
-          onClick={() => {
-            if (readOnly) return
-            if (allDay) {
-              setStart(start ? `${start}T00:00` : '')
-              setEnd(end ? `${utcMidnight(end, 1).slice(0, 10)}T00:00` : '')
-            } else {
-              setStart(start.slice(0, 10))
-              setEnd(end.slice(0, 10))
-            }
-            setEndEdited(true)
-            setAllDay(!allDay)
-          }}
-          disabled={readOnly}
-        >
-          {allDay ? '☑' : '☐'} All day
-        </button>
-
-        <label className="field">
-          <span>Location</span>
-          <input
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
+          <RecurrencePicker
+            freq={repeat.freq}
+            byday={repeat.byday}
+            until={repeat.until}
+            start={new Date(allDay ? `${start}T00:00` : start)}
             disabled={readOnly}
-            placeholder="Riverside Park"
+            onChange={(value) => { setRepeat(value); setRepeatChanged(true) }}
           />
-        </label>
 
-        <label className="field">
-          <span>Notes</span>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            disabled={readOnly}
-            rows={2}
-          />
-        </label>
+          <label className="field">
+            <span>Location</span>
+            <input
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              disabled={readOnly}
+              placeholder="Riverside Park"
+            />
+          </label>
 
+          <label className="field">
+            <span>Notes</span>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={readOnly}
+              rows={2}
+            />
+          </label>
+
+        </details>
+
+        {context.error && <p role="alert">Could not load the repeat rule. <button onClick={() => void context.refetch()}>Retry</button></p>}
         {error && <p className="modal__error">{error}</p>}
 
         {choosingDelete && <RecurringDeleteChoices busy={busy}
           onChoose={(scope) => void destroy(scope)} onCancel={() => setChoosingDelete(false)} />}
-        {!choosingDelete && <div className="modal__actions">
+        {choosingEdit && <RecurringEditChoices busy={busy} onChoose={(scope) => void submit(scope)} onCancel={() => setChoosingEdit(false)} />}
+        {!choosingDelete && !choosingEdit && <div className="modal__actions">
           {!isNew && !readOnly && (
             <button className="btn btn--danger" onClick={() => event?.recurring ? setChoosingDelete(true) : void destroy()} disabled={busy}>
               Delete
@@ -363,7 +377,7 @@ export function EventModal({ event, defaultStart, onClose }: Props) {
             {readOnly ? 'Close' : 'Cancel'}
           </button>
           {!readOnly && (
-            <button className="btn btn--primary" onClick={submit} disabled={busy}>
+            <button className="btn btn--primary" onClick={() => void submit()} disabled={busy || (!!event?.recurring && !context.isSuccess)}>
               {busy ? 'Saving…' : 'Save'}
             </button>
           )}

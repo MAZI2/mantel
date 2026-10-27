@@ -151,9 +151,10 @@ Engineering constraints, as opposed to features nobody has written yet — those
 - **Single process only.** `services/pushqueue.py` keeps the event loop in module globals, so
   more than one uvicorn worker would give you N racing pull loops on one SQLite file.
 - **No retry ceiling.** A permanently failing push retries every `PUSH_INTERVAL_SECONDS` forever.
-- **Editing one occurrence of a series is unsupported** on both providers; the UI edits the
-  whole series. Recurring deletion supports one occurrence, all occurrences, or
-  the selected occurrence and all future ones, on local and synced calendars.
+- Recurring edits and deletion support one occurrence, all occurrences, or the selected
+  occurrence and all future ones. Partial edits use a durable exclusion/truncation plus
+  replacement. Keep the replacement exempt from its old-series deletion command, and
+  keep single-occurrence replacements associated with their original series.
 - **The `.ics` feed token** is derived from `SECRET_KEY` and cannot be revoked or scoped
   individually.
 
@@ -169,3 +170,9 @@ Importance is personal registry data, not an Event column or provider field. Pre
 its key when creating an upstream event, recreating a deleted remote event or moving
 between calendars. Recurring occurrences share the series mark. The personal default
 is global across profiles; the star filter is personal within the selected profile.
+
+Individual event links live in the registry without copied content, use a separate
+negative-ID namespace, and require both memberships for every read/write. Never expose
+them in bearer feeds. Event-link actions and hold-to-create are personal per-profile
+options, disabled by default. The three-second gesture must leave normal scrolling
+untouched before it arms, suppress the following click, and never autofocus a text field.

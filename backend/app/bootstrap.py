@@ -13,6 +13,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "hidden_calendar_ids": [],
     "important_by_default": True,
     "highlight_important": False,
+    "enable_event_linking": False,
+    "hold_to_create": False,
+    "show_important_counts": False,
     "first_day_of_week": 0,  # 0=Sunday, 1=Monday
     "time_format_24h": False,
     "home_timezone": "America/New_York",

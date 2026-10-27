@@ -56,6 +56,7 @@ export interface CalendarInfo {
 }
 
 export interface CalendarEvent {
+  linked_event?: boolean
   important?: boolean
   id: number
   calendar_id: number
@@ -165,6 +166,9 @@ export interface SharedList {
 export interface AppSettings {
   important_by_default: boolean
   highlight_important: boolean
+  enable_event_linking: boolean
+  hold_to_create: boolean
+  show_important_counts: boolean
   hidden_calendar_ids: number[]
   first_day_of_week: number
   time_format_24h: boolean

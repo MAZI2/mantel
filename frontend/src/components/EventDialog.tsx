@@ -1,3 +1,4 @@
+import { EventLinkForm } from './EventLinkForm'
 import { RecurringDeleteChoices } from './RecurringDeleteChoices'
 import { format, isSameDay } from 'date-fns'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
@@ -12,17 +13,18 @@ import { EventModal } from './EventModal'
 interface Props {
   event: CalendarEvent | null
   defaultStart: Date | null
+  defaultEnd?: Date | null
   onClose: () => void
 }
 
 /** Existing events open as details; empty slots still open the creation form. */
-export function EventDialog({ event, defaultStart, onClose }: Props) {
+export function EventDialog({ event, defaultStart, defaultEnd, onClose }: Props) {
   const [editing, setEditing] = useState(false)
   const [selected, setSelected] = useState(event)
   return event && !editing ? (
     <EventDetails event={event} onEdit={(next) => { setSelected(next); setEditing(true) }} onClose={onClose} />
   ) : (
-    <EventModal event={selected} defaultStart={defaultStart} onClose={onClose} />
+    <EventModal event={selected} defaultStart={defaultStart} defaultEnd={defaultEnd} onClose={onClose} />
   )
 }
 
@@ -37,6 +39,7 @@ function EventDetails({ event, onEdit, onClose }: {
   const remove = useDeleteEvent()
   const importance = useEventImportance()
   const [important, setImportant] = useState(event.important !== false)
+  const [linking, setLinking] = useState(false)
   const [choosingDelete, setChoosingDelete] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const card = useRef<HTMLDivElement>(null)
@@ -124,6 +127,9 @@ function EventDetails({ event, onEdit, onClose }: {
         {importance.error && <p className="modal__error" role="alert">Could not save importance. Please try again.</p>}
         {!event.editable && <p className="modal__note">This calendar is read-only.</p>}
         {error && <p className="modal__error" role="alert">{error}</p>}
+
+        {settings?.enable_event_linking && (linking ? <EventLinkForm event={event} onCancel={() => setLinking(false)} /> :
+          <button className="btn" disabled={busy} onClick={() => setLinking(true)}>Add to another calendar</button>)}
 
         {event.editable && choosingDelete && <RecurringDeleteChoices busy={busy}
           onChoose={(scope) => void destroy(scope)} onCancel={() => setChoosingDelete(false)} />}

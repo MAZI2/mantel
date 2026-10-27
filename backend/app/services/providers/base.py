@@ -90,6 +90,7 @@ class RemoteEvent:
     all_day: bool = False
     timezone: str | None = None
     original_start: datetime | None = None
+    clear_recurrence: bool = False
     recurrence_rule: str | None = None  # RRULE body, no "RRULE:" prefix
     recurring_event_id: str | None = None
     exdates: list[datetime] = field(default_factory=list)
@@ -135,5 +136,7 @@ class CalendarProvider(Protocol):
         scope: str,
         all_day: bool,
     ) -> None: ...
+
+    def get_series(self, calendar_id: str, series_id: str) -> RemoteEvent: ...
 
     def original_start(self, calendar_id: str, remote_id: str) -> datetime | None: ...

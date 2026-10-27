@@ -334,3 +334,20 @@ them unchanged. Event edits and scoped recurring deletions reach the original
 calendar and its provider queue. Remove a link with `DELETE /api/calendars/<id>`;
 the source calendar remains. Moving linked events between calendars is done in
 the source profile. Linked calendars are excluded from destination subscription feeds.
+
+### Scoped edits and individual event links
+
+For recurring PATCH /api/events/{id}, send `edit_scope` (`this`, `future`, `all`)
+and `occurrence_start` from the listed event, alongside changed fields. GET
+/api/events/{id}/edit-context loads the original repeat rule, including rules from
+provider-expanded occurrences. Preserve an unchanged rule verbatim, including COUNT.
+Partial edits atomically queue the old series exclusion/truncation and create the
+replacement. All-series edits preserve the original anchor and apply local-clock
+changes relative to the selected occurrence.
+
+With the personal `enable_event_linking` setting enabled, GET
+/api/events/{id}/link-options lists accessible destination profiles/calendars. POST
+/api/events/{id}/links accepts `profile_id`, `calendar_id`, and `occurrence_start` for
+a repeating event. The returned ID is opaque; every event operation rechecks both
+profile memberships. Links stay within Mantel and are omitted from bearer feeds.
+`hold_to_create` is a separate personal per-profile boolean, also false by default.

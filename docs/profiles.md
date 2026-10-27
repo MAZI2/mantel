@@ -177,3 +177,25 @@ and visible-calendar selection remain separate for each profile.
 
 Subscription feeds exclude linked calendars: a destination-profile bearer token
 must not grant source-profile access. Subscribe from the original profile instead.
+
+### Individual event links and optional interactions
+
+In Display settings, **Link events to other calendars** enables **Add to another calendar**
+in event details. It is off by default and personal within the selected profile. The
+chosen destination receives a live reference inside Mantel, without copying provider
+credentials or creating an event in the destination Google/iCloud account. Reading or
+editing the reference always requires access to both profiles. Editing/deleting follows
+the original event. A recurring event links the selected occurrence; its reference
+follows scoped edits of that occurrence. Bearer feeds exclude these references.
+
+**Hold and drag to create events** is also personal per profile and off by default.
+A stationary three-second hold arms a live duration selection, even over timed events.
+Scrolling before the hold completes cancels it. Dragging can span days and auto-scrolls
+near the timeline edges. Releasing opens the editor with both dates/times filled in.
+
+The editor leaves the keyboard closed until an input is tapped, puts optional fields
+under More, and asks which occurrences to change when saving a recurring event. The optional day-header count includes important visible timed and all-day events
+overlapping that day. It is personal per profile, off by default, and shown only for
+positive counts. The active profile button opens a compact calendar-visibility drop-up;
+clicking another profile switches to it. Normal empty-grid clicks do nothing; use the
+top-bar + button or enable hold-and-drag to create an event.

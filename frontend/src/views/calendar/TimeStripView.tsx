@@ -30,7 +30,6 @@ interface Props {
   /** The user scrolled close to one end of the window; the parent should add days. */
   onExtend?: (side: 'start' | 'end') => void
   onSelectEvent: (e: CalendarEvent) => void
-  onSelectSlot: (start: Date) => void
 }
 
 /** How many screens from an edge before the window grows. Generous, so growth happens
@@ -57,7 +56,6 @@ export function TimeStripView({
   onVisibleStartChange,
   onExtend,
   onSelectEvent,
-  onSelectSlot,
 }: Props) {
   const span = spanOf(kind)
   const days = useMemo(() => daysIn(win), [win])
@@ -261,7 +259,6 @@ export function TimeStripView({
                 use24h={use24h}
                 placeholder={!isFull(i)}
                 onSelectEvent={onSelectEvent}
-                onSelectSlot={onSelectSlot}
               />
             ))}
           </div>

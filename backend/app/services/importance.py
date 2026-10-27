@@ -59,11 +59,15 @@ def values(events: list[Event], selected: bool | None = None) -> list[bool]:
         return [saved.get(key, default) for key in keys]
 
 
-def transfer(event: Event, old_calendar_id: int, old_key: str) -> None:
+def transfer(event: Event, old_calendar_id: int, old_key: str, *, references: bool = True) -> None:
     """Keep every person's marks through provider creation, resync and calendar moves."""
     scope = current_profile.get()
     if not scope or (old_calendar_id, old_key) == (event.calendar_id, event_key(event)):
         return
+    from . import event_links
+
+    if references:
+        event_links.transfer(event, old_calendar_id, old_key)
     with RegistrySession() as registry:
         rows = list(
             registry.scalars(

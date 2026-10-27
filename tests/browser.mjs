@@ -9,7 +9,7 @@ const errors = []
 async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal', allDay = false,
   weekStartsOn = 1, dayStartHour = 0, dayEndHour = 24,
   timezoneId = 'Europe/Ljubljana', fixtureEvents = null, fixtureUsers = [], fixtureCalendars = null, fixtureAccounts = [],
-  time = '2026-10-21T12:00:00+02:00', path = '/' } = {}) {
+  time = '2026-10-21T12:00:00+02:00', path = '/', holdToCreate = false, showImportantCounts = false } = {}) {
   const context = await browser.newContext({ baseURL, viewport, timezoneId,
     hasTouch: true, serviceWorkers: 'block' })
   const page = await context.newPage()
@@ -18,7 +18,7 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
   const savedSettings = {
     ...settings, first_day_of_week: weekStartsOn, display_scale: scale, time_format_24h: true,
     day_start_hour: dayStartHour, day_end_hour: dayEndHour, screensaver_enabled: false, sleep_enabled: false,
-    burn_in_shift: false, bookmark_url: '',
+    burn_in_shift: false, bookmark_url: '', hold_to_create: holdToCreate, show_important_counts: showImportantCounts,
   }
   await context.route('**/api/settings', (route) => {
     if (route.request().method() === 'PATCH') Object.assign(savedSettings, route.request().postDataJSON())
@@ -87,6 +87,9 @@ try {
         assert.equal(new URL(page.url()).pathname, '/calendar/week')
         assert.equal(await page.locator('.timegrid__dayhead').count(), 7)
         assert.equal(await page.locator('.viewtabs, .navviews, .timestrip').count(), 0)
+        assert.equal(await page.locator('.timegrid__important-count').count(), 0, 'day counts are disabled by default')
+        assert.equal(await page.locator('.calpage__bar .calendar-picker').count(), 0)
+        assert.equal(await page.getByRole('button', { name: 'Add event', exact: true }).textContent(), '+')
         assert.equal(await page.locator('.profile-nav button[aria-pressed=true]').count(), 1)
         assert.equal(await page.getByRole('button', { name: 'Sync now', exact: true }).count(), 0)
         if (allDay) await page.getByRole('button', { name: 'All-day test' }).waitFor()
@@ -154,10 +157,14 @@ try {
     const shared = page.locator('.event-block').filter({ hasText: 'Shared appointment' })
     await work.waitFor()
     await shared.waitFor()
-    assert.equal(await page.getByRole('button', { name: 'Add event', exact: true }).count(), 0)
-    const picker = page.getByRole('button', { name: 'Choose calendars', exact: true })
+    assert.equal(await page.getByRole('button', { name: 'Add event', exact: true }).count(), 1)
+    const picker = page.locator('.profile-nav button[aria-pressed=true]')
     await picker.click()
     const group = page.getByRole('group', { name: 'Visible calendars', exact: true })
+    const dropup = await group.boundingBox(), trigger = await picker.boundingBox()
+    assert.ok(dropup.y + dropup.height < trigger.y, 'calendar visibility must open above the profile button')
+    assert.ok(dropup.height < viewport.height * .75, 'the drop-up should fit its content')
+    assert.equal(await group.getByText('Choose calendars to show for you in this profile.', { exact: true }).count(), 0)
     await group.getByRole('checkbox', { name: 'Work', exact: true }).uncheck()
     await work.waitFor({ state: 'hidden' })
     await shared.waitFor()
@@ -286,10 +293,11 @@ try {
     await page.reload()
     await page.locator('.timegrid__slot').first().waitFor()
     await context.unroute('**/api/events?*')
-    await page.locator('.timegrid__col').nth(2).locator('.timegrid__slot').nth(14).click()
+    await page.getByRole('button', { name: 'Add event', exact: true }).click()
     await page.getByLabel('Title', { exact: true }).fill('Always two pm')
     await page.getByRole('combobox', { name: 'Calendar', exact: true }).selectOption(String(weeklyCalendarId))
     await page.getByLabel('Starts', { exact: true }).fill('2026-10-21T14:00')
+    await page.locator('.event-more summary').click()
     await page.getByRole('button', { name: 'Weekly', exact: true }).click()
     const savedResponse = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/events' && r.request().method() === 'POST')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -515,7 +523,7 @@ try {
     assert.equal(await page.getByRole('button', { name: 'Sync now', exact: true }).count(), google ? 1 : 0)
     accounts.length = 0
     await page.reload()
-    await page.getByRole('button', { name: 'Choose calendars', exact: true }).waitFor()
+    await page.locator('.profile-nav button[aria-pressed=true]').waitFor()
     assert.equal(await page.getByRole('button', { name: 'Sync now', exact: true }).count(), 0)
     await context.close()
   }
@@ -533,6 +541,9 @@ try {
   await titleIs(page, 'Oct 19 – 25, 2026')
   assert.ok(eventRanges.some((date) => date?.startsWith('2026-11-08')), 'navigation did not fetch the new week')
   await page.locator('.timegrid__col').first().locator('.timegrid__slot').last().click()
+  assert.equal(await page.getByRole('dialog').count(), 0, 'a normal empty-grid click must not create an event')
+  await page.getByRole('button', { name: 'Add event', exact: true }).click()
+  await page.getByLabel('Starts', { exact: true }).fill('2026-10-21T23:00')
   await page.locator('.modal').waitFor()
   assert.ok((await page.locator('input[type="datetime-local"]').first().inputValue()).endsWith('T23:00'))
   await context.close()
@@ -561,7 +572,7 @@ try {
       page.waitForResponse((response) => response.url().endsWith('/api/settings') && response.request().method() === 'PATCH'),
       ends.selectOption(String(end)),
     ])
-    await page.locator('.profile-nav button[aria-pressed=true]').click()
+    await page.getByRole('link', { name: 'Settings', exact: true }).click()
     await page.reload()
     await page.waitForFunction((count) => document.querySelectorAll('.timegrid__slot').length === count, (end - start) * 7)
     const slots = page.locator('.timegrid__col').first().locator('.timegrid__slot')
@@ -592,7 +603,8 @@ try {
     await page.reload()
     await page.locator('.timegrid__slot').first().waitFor()
     await context.unroute('**/api/events?*')
-    await page.locator('.timegrid__col').first().locator('.timegrid__slot').nth(10).click()
+    await page.getByRole('button', { name: 'Add event', exact: true }).click()
+    await page.getByLabel('Starts', { exact: true }).fill('2026-10-21T10:00')
     const starts = page.getByLabel('Starts', { exact: true })
     const ends = page.getByLabel('Ends', { exact: true })
     assert.ok((await starts.inputValue()).endsWith('T10:00'))
@@ -619,7 +631,7 @@ try {
       await event.click()
       await page.getByRole('button', { name: 'Edit', exact: true }).click()
       if (colour) await page.getByLabel('Custom event colour', { exact: true }).fill(colour)
-      else await page.getByRole('button', { name: 'Default colour', exact: true }).click()
+      else await page.getByRole('button', { name: 'Default event colour', exact: true }).click()
       const savedResponse = page.waitForResponse((response) =>
         new URL(response.url()).pathname === `/api/events/${created.id}` && response.request().method() === 'PATCH')
       await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -667,7 +679,7 @@ try {
           assert.equal(await page.getByLabel('Starts', { exact: true }).inputValue(), start)
           assert.equal(await page.getByLabel('Ends', { exact: true }).inputValue(), lastDay)
           if (colour) await page.getByLabel('Custom event colour', { exact: true }).fill(colour)
-          else await page.getByRole('button', { name: 'Default colour', exact: true }).click()
+          else await page.getByRole('button', { name: 'Default event colour', exact: true }).click()
           const savedResponse = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/events/${created.id}` && r.request().method() === 'PATCH')
           await page.getByRole('button', { name: 'Save', exact: true }).click()
           const saved = await (await savedResponse).json()
@@ -682,10 +694,10 @@ try {
       }
       // Creating an all-day event uses inclusive dates too, without changing the
       // one-hour default for the usual timed-event flow.
-      await page.locator('.timegrid__col').nth(2).locator('.timegrid__slot').nth(14).click()
+      await page.getByRole('button', { name: 'Add event', exact: true }).click()
       await page.getByRole('textbox', { name: 'Title', exact: true }).fill('New all-day')
       await page.getByRole('combobox', { name: 'Calendar', exact: true }).selectOption(String(calendarId))
-      await page.getByRole('button', { name: 'All day' }).click()
+      await page.getByRole('checkbox', { name: 'All day', exact: true }).check()
       await page.getByLabel('Starts', { exact: true }).fill('2026-10-21')
       await page.getByLabel('Ends', { exact: true }).fill('2026-10-21')
       const createdResponse = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/events' && r.request().method() === 'POST')
@@ -913,7 +925,7 @@ try {
     const extraEvent = page.locator('.event-block').filter({ hasText: 'Extra calendar appointment' })
     await familyEvent.waitFor()
     await extraEvent.waitFor()
-    await page.getByRole('button', { name: 'Choose calendars', exact: true }).click()
+    await page.locator('.profile-nav button[aria-pressed=true]').click()
     await page.getByRole('group', { name: 'Visible calendars', exact: true })
       .getByRole('checkbox', { name: 'Family', exact: true }).uncheck()
     await familyEvent.waitFor({ state: 'hidden' })
@@ -928,7 +940,7 @@ try {
       await otherPage.locator('.timegrid').waitFor()
       assert.equal(await otherPage.locator('.event-block').filter({ hasText: 'Shared family appointment' }).count(), 0)
       await otherPage.locator('.event-block').filter({ hasText: 'Extra calendar appointment' }).waitFor()
-      await otherPage.getByRole('button', { name: 'Choose calendars', exact: true }).click()
+      await otherPage.locator('.profile-nav button[aria-pressed=true]').click()
       const choices = otherPage.getByRole('group', { name: 'Visible calendars', exact: true })
       assert.equal(await choices.getByRole('checkbox', { name: 'Family', exact: true }).isChecked(), false)
       assert.equal(await choices.getByRole('checkbox', { name: 'Personal visibility test', exact: true }).isChecked(), true)
@@ -1075,7 +1087,7 @@ try {
       await page.getByLabel('Important by default', { exact: true }).uncheck()
       assert.equal((await defaultChanged).status(), 200)
       await page.getByRole('link', { name: 'Settings', exact: true }).click()
-      await page.locator('.timegrid__slot').first().click()
+      await page.getByRole('button', { name: 'Add event', exact: true }).click()
       assert.equal(await page.getByLabel('Important for me', { exact: true }).isChecked(), false)
       await page.getByLabel('Title', { exact: true }).fill('Created through imported calendar')
       await page.getByLabel('Calendar', { exact: true }).selectOption(String(link.id))
@@ -1146,6 +1158,183 @@ try {
     }
     console.log('PASS: personal importance defaults and marks, 25% star filter, per-profile persistence across devices, live linked calendar editing and membership revocation')
   }
+
+  // Optional event linking and scoped saving through the real editor.
+  {
+    const admin = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' })
+    let sourceId, targetId
+    const sourceName = `Edit source ${Date.now()}`, targetName = `Edit target ${Date.now()}`
+    try {
+      sourceId = (await (await admin.request.post('/api/admin/profiles', { data: { name: sourceName, members: ['local-admin'] } })).json()).id
+      targetId = (await (await admin.request.post('/api/admin/profiles', { data: { name: targetName, members: ['local-admin'] } })).json()).id
+      const create = async (title, recurrence_rule = null) => {
+        const response = await admin.request.post(`/api/events?profile=${sourceId}`, { data: {
+          calendar_id: 1, title, recurrence_rule, important: true, timezone: 'Europe/Ljubljana',
+          start_at: '2026-10-21T12:00:00Z', end_at: '2026-10-21T13:00:00Z',
+        } })
+        assert.equal(response.status(), 201)
+        return response.json()
+      }
+      const original = await create('Event to link')
+      await create('Scoped weekly', 'FREQ=WEEKLY;COUNT=3')
+      const page = await admin.newPage()
+      page.on('pageerror', (e) => errors.push(e.message))
+      await page.clock.install({ time: new Date('2026-10-21T12:00:00Z') })
+      await page.goto(`/calendar/week?profile=${sourceId}`)
+      const eventBlock = (title) => page.locator('.event-block').filter({ hasText: title })
+      await eventBlock('Event to link').click()
+      assert.equal(await page.locator('.timegrid__important-count').count(), 0)
+      assert.equal(await page.getByRole('button', { name: 'Add to another calendar', exact: true }).count(), 0)
+      await page.getByRole('button', { name: 'Close event details', exact: true }).click()
+      await page.getByRole('link', { name: 'Settings', exact: true }).click()
+      await page.getByRole('button', { name: 'Display', exact: true }).click()
+      const countOption = page.getByRole('checkbox', { name: 'Show important event counts', exact: true })
+      assert.equal(await countOption.isChecked(), false)
+      const countsSaved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PATCH')
+      await countOption.check()
+      await countsSaved
+      const linkingSaved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PATCH')
+      await page.getByRole('checkbox', { name: 'Link events to other calendars', exact: true }).check()
+      await linkingSaved
+      const gestureSaved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PATCH')
+      await page.getByRole('checkbox', { name: 'Hold and drag to create events', exact: true }).check()
+      await gestureSaved
+      await page.getByRole('link', { name: 'Settings', exact: true }).click()
+      await eventBlock('Event to link').click()
+      assert.equal(await page.locator('.timegrid__important-count').textContent(), '2')
+      await page.getByRole('button', { name: 'Add to another calendar', exact: true }).click()
+      await page.getByLabel('Destination profile and calendar', { exact: true }).selectOption(`${targetId}:1`)
+      await page.getByRole('button', { name: 'Add linked event', exact: true }).click()
+      await page.getByText('Event linked.', { exact: true }).waitFor()
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      await page.getByRole('button', { name: 'Close event details', exact: true }).click()
+      await page.getByRole('button', { name: targetName, exact: true }).click()
+      await eventBlock('Event to link').waitFor()
+      assert.equal(await page.locator('.calendar-picker__menu').count(), 0, 'an inactive profile should switch without opening the picker')
+      assert.equal(await page.locator('.timegrid__important-count').count(), 0, 'count setting should be personal within each profile')
+      await page.getByRole('button', { name: targetName, exact: true }).click()
+      await page.getByRole('group', { name: 'Visible calendars', exact: true }).waitFor()
+      assert.equal(new URL(page.url()).searchParams.get('profile'), targetId)
+      await page.keyboard.press('Escape')
+      await eventBlock('Event to link').click()
+      await page.getByRole('button', { name: 'Edit', exact: true }).click()
+      await page.getByLabel('Title', { exact: true }).fill('Edited from linked calendar')
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      await eventBlock('Edited from linked calendar').waitFor()
+      assert.equal((await (await admin.request.get(`/api/events/${original.id}?profile=${sourceId}`)).json()).title, 'Edited from linked calendar')
+      await page.getByRole('button', { name: sourceName, exact: true }).click()
+      await eventBlock('Scoped weekly').click()
+      await page.getByRole('button', { name: 'Edit', exact: true }).click()
+      await page.getByLabel('Title', { exact: true }).fill('Only this occurrence')
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      const choices = page.getByRole('group', { name: 'Edit repeating event', exact: true })
+      await choices.waitFor()
+      await choices.getByRole('button', { name: 'Cancel', exact: true }).click()
+      assert.equal(await page.getByLabel('Title', { exact: true }).inputValue(), 'Only this occurrence')
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      await choices.getByRole('button', { name: 'This event only', exact: true }).click()
+      await page.getByRole('dialog').waitFor({ state: 'hidden' })
+      await eventBlock('Only this occurrence').waitFor()
+      const rows = await (await admin.request.get(`/api/events?profile=${sourceId}&start=2026-10-01T00:00:00Z&end=2026-12-01T00:00:00Z`)).json()
+      assert.equal(rows.filter((e) => e.title === 'Scoped weekly').length, 2)
+      assert.equal(rows.filter((e) => e.title === 'Only this occurrence').length, 1)
+    } finally {
+      for (const id of [targetId, sourceId]) if (id) await admin.request.patch(`/api/admin/profiles/${id}`, { data: { active: false } })
+      await admin.close()
+    }
+  }
+  console.log('PASS: optional live event-link action and recurring-save choices work through the editor')
+
+  // Compact editor and real touch duration selection, including holds over an existing event.
+  for (const viewport of [{ width: 320, height: 640 }, { width: 390, height: 844 }, { width: 1280, height: 720 }]) {
+    const fixture = { id: 88001, calendar_id: 1, calendar_name: 'Family', title: 'Under the finger',
+      color: '#38bdf8', user_id: null, start_at: '2026-10-21T14:00:00+02:00',
+      end_at: '2026-10-21T15:00:00+02:00', important: true, all_day: false,
+      editable: true, recurring: false, origin: 'local', sync_state: 'synced' }
+    const { context, page } = await open({ viewport, fixtureEvents: [fixture], holdToCreate: true, showImportantCounts: true })
+    try {
+      assert.equal(await page.locator('.timegrid__dayhead').nth(2).getByLabel('1 important events', { exact: true }).count(), 1)
+      assert.ok(await page.locator('.timegrid__dayhead').nth(2).evaluate((head) => {
+        const date = head.querySelector('.timegrid__date-number').getBoundingClientRect()
+        const count = head.querySelector('.timegrid__important-count').getBoundingClientRect()
+        return Math.abs((date.top + date.bottom) / 2 - (count.top + count.bottom) / 2) < 2 && count.left >= date.right
+      }), 'important-event count must stay beside the date, including today')
+      await page.locator('.timegrid__col').first().locator('.timegrid__slot').nth(12).click()
+      assert.equal(await page.getByRole('dialog').count(), 0)
+      await page.locator('.timegrid__col').first().locator('.timegrid__slot').nth(12).tap()
+      assert.equal(await page.getByRole('dialog').count(), 0, 'a short touch must not create an event')
+      assert.equal(await page.locator('.timegrid__important-count').count(), 1, 'zero counts must stay hidden')
+      assert.equal(await page.locator('.timegrid__important-count svg').count(), 0)
+      await page.getByRole('button', { name: 'Add event', exact: true }).click()
+      assert.equal(await page.getByLabel('Title', { exact: true }).evaluate((el) => document.activeElement === el), false)
+      assert.equal(await page.getByLabel('Location', { exact: true }).isVisible(), false)
+      assert.equal(await page.getByLabel('Who is this for?', { exact: true }).isVisible(), false)
+      const flags = await page.locator('.event-flags input').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top))
+      assert.equal(flags.length, 2)
+      assert.ok(Math.abs(flags[0] - flags[1]) < 2)
+      const palette = await page.locator('.event-colour__choices').evaluate((row) => {
+        const rect = row.getBoundingClientRect(), children = [...row.children].map((el) => el.getBoundingClientRect())
+        return { tops: children.map((r) => r.top), fits: children.every((r) => r.left >= rect.left - 1 && r.right <= rect.right + 1) }
+      })
+      assert.equal(new Set(palette.tops).size, 1, 'the colour palette wrapped')
+      assert.ok(palette.fits, 'colour controls escaped the row')
+      await page.getByRole('button', { name: 'Default event colour', exact: true }).click()
+      await page.locator('.event-more summary').click()
+      assert.equal(await page.getByLabel('Location', { exact: true }).isVisible(), true)
+      assert.equal(await page.getByRole('button', { name: 'Weekly', exact: true }).isVisible(), true)
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+      const block = page.locator('.event-block').filter({ hasText: fixture.title })
+      await block.click()
+      await page.getByRole('button', { name: 'Edit', exact: true }).click()
+      assert.equal(await page.getByLabel('Title', { exact: true }).evaluate((el) => document.activeElement === el), false)
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await page.locator('.timegrid__body').evaluate((el) => { el.scrollTop = 11 * 32 })
+      const rect = await block.boundingBox()
+      const x = rect.x + rect.width / 2, y = rect.y + 3
+      const cdp = await context.newCDPSession(page)
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      await page.clock.runFor(2990)
+      assert.equal(await page.locator('.event-draft').count(), 0)
+      await page.clock.runFor(20)
+      await page.locator('.event-draft').waitFor()
+      assert.equal(await page.locator('.event-details').count(), 0)
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + 64 }] })
+      await page.locator('.event-draft').waitFor()
+      assert.ok(await page.locator('.event-draft').evaluate((el) => el.getBoundingClientRect().height) >= 64)
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await page.getByRole('heading', { name: 'New event', exact: true }).waitFor()
+      assert.equal(await page.locator('.event-details').count(), 0)
+      assert.equal(await page.getByLabel('Starts', { exact: true }).inputValue(), '2026-10-21T14:00')
+      assert.equal(await page.getByLabel('Ends', { exact: true }).inputValue(), '2026-10-21T16:15')
+      assert.equal(await page.getByLabel('Title', { exact: true }).evaluate((el) => document.activeElement === el), false)
+      if (viewport.width === 390 && process.env.ARTIFACT_DIR) await page.screenshot({ path: `${process.env.ARTIFACT_DIR}/compact-event-editor.png` })
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+      if (viewport.width === 390) {
+        const nextDay = await page.locator('.timegrid__col').nth(3).boundingBox()
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+        await page.clock.runFor(3010)
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: nextDay.x + nextDay.width / 2, y: y + 64 }] })
+        assert.equal(await page.locator('.event-draft').count(), 2, 'cross-day selection should cover both days')
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        await page.getByRole('heading', { name: 'New event', exact: true }).waitFor()
+        assert.equal(await page.getByLabel('Ends', { exact: true }).inputValue(), '2026-10-22T16:15')
+        await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+        const body = page.locator('.timegrid__body')
+        await body.evaluate((el) => { el.scrollTop = 0 })
+        const bodyRect = await body.boundingBox()
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: bodyRect.y + bodyRect.height - 20 }] })
+        await page.clock.runFor(3010)
+        await page.locator('.event-draft').waitFor()
+        await page.clock.runFor(350)
+        assert.ok(await body.evaluate((el) => el.scrollTop) > 0, 'armed selection should auto-scroll near the lower edge')
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
+        assert.equal(await page.locator('.event-draft').count(), 0)
+        assert.equal(await page.getByRole('dialog').count(), 0, 'cancelled selection should not open a modal')
+      }
+
+    } finally { await context.close() }
+  }
+  console.log('PASS: compact editor, one-row colour palette, no keyboard autofocus, important day count and three-second touch drag over existing events')
 
   assert.deepEqual(errors, [], 'browser JavaScript errors')
 } finally {

@@ -172,6 +172,8 @@ class Event(TimestampMixin, Base):
 
     # Original slot of a moved occurrence; deletion scopes use this, not its new time.
     original_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    local_series_key: Mapped[str | None] = mapped_column(String(1200), nullable=True)
+    pending_recurrence_clear: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     recurrence_rule: Mapped[str | None] = mapped_column(Text)
     recurring_event_id: Mapped[str | None] = mapped_column(String(1024))
     # Occurrences of `recurrence_rule` that must not be rendered, as comma-separated
@@ -227,6 +229,7 @@ class EventDeletion(Base):
     """Durable scoped deletions, retained until a fresh pull confirms the remote write."""
 
     __tablename__ = "event_deletions"
+    exempt_event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     calendar_id: Mapped[int] = mapped_column(ForeignKey("calendars.id", ondelete="CASCADE"))
     event_id: Mapped[int | None] = mapped_column(ForeignKey("events.id", ondelete="SET NULL"))

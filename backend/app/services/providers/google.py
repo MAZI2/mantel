@@ -66,6 +66,9 @@ class GoogleProvider:
         # so the engine can call every provider the same way.
         self._client.delete_event(calendar_id, remote_id)
 
+    def get_series(self, calendar_id: str, series_id: str) -> RemoteEvent:
+        return _to_remote(self._client.get_event(calendar_id, series_id))
+
     def original_start(self, calendar_id: str, remote_id: str) -> datetime | None:
         item = self._client.get_event(calendar_id, remote_id)
         original = item.get("originalStartTime") or {}
@@ -149,6 +152,10 @@ def _to_remote(item: dict, colors: dict | None = None) -> RemoteEvent:
             or (item.get("originalStartTime") or {}).get("date")
         ),
         updated=_parse_dt(item.get("updated")),
+        recurrence_rule=next(
+            (r[6:] for r in item.get("recurrence", []) if r.startswith("RRULE:")), None
+        ),
+        exdates=_exdates(item.get("recurrence", [])),
     )
 
 
@@ -169,6 +176,8 @@ def _to_body(event: RemoteEvent) -> dict:
         "start": start,
         "end": end,
     }
+    if event.clear_recurrence:
+        body["recurrence"] = []
     if event.recurrence_rule:
         # Google owns the expansion from here. Our pull asks for singleEvents, so
         # what comes back are individual instances -- which is why the master gets
@@ -179,6 +188,9 @@ def _to_body(event: RemoteEvent) -> dict:
             else with_utc_until(event.recurrence_rule, event.timezone)
         )
         body["recurrence"] = [f"RRULE:{rule}"]
+        for moment in event.exdates:
+            stamp = moment.strftime("%Y%m%d" if event.all_day else "%Y%m%dT%H%M%SZ")
+            body["recurrence"].append(f"EXDATE{';VALUE=DATE' if event.all_day else ''}:{stamp}")
     return body
 
 
@@ -232,3 +244,16 @@ def _trim_rdates(rules: list[str], cutoff: datetime, all_day: bool) -> list[str]
         if kept:
             out.append(f"{header}:{','.join(kept)}")
     return out
+
+
+def _exdates(rules: list[str]) -> list[datetime]:
+    from icalendar import Event as IEvent
+
+    result = []
+    for rule in rules:
+        if rule.startswith("EXDATE"):
+            component = IEvent.from_ical(f"BEGIN:VEVENT\r\n{rule}\r\nEND:VEVENT\r\n")
+            for value in component["EXDATE"].dts:
+                moment = value.dt
+                result.append(_parse_dt(moment.isoformat()))
+    return result

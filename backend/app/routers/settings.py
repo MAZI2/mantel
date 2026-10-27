@@ -157,7 +157,13 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
     values["hidden_calendar_ids"] = personal_calendar_visibility(
         request.state.principal.identity, values["hidden_calendar_ids"]
     )
-    for name, default in (("important_by_default", True), ("highlight_important", False)):
+    for name, default in (
+        ("important_by_default", True),
+        ("highlight_important", False),
+        ("enable_event_linking", False),
+        ("hold_to_create", False),
+        ("show_important_counts", False),
+    ):
         values[name] = personal_boolean(request.state.principal.identity, name, default)
     # Secrets are write-only over the API. Reporting whether one is set is enough
     # for the settings screen to render, and means a stored client secret and a
@@ -191,7 +197,13 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
     ),
 )
 def update_app_settings(payload: dict, request: Request, db: Session = Depends(get_db)) -> dict:
-    for name in ("important_by_default", "highlight_important"):
+    for name in (
+        "important_by_default",
+        "highlight_important",
+        "enable_event_linking",
+        "hold_to_create",
+        "show_important_counts",
+    ):
         if name in payload and type(payload[name]) is not bool:
             raise HTTPException(400, f"{name} must be true or false.")
     if "hidden_calendar_ids" in payload:
@@ -215,7 +227,13 @@ def update_app_settings(payload: dict, request: Request, db: Session = Depends(g
             request.state.principal.identity, [], payload.pop("hidden_calendar_ids")
         )
 
-    for name in ("important_by_default", "highlight_important"):
+    for name in (
+        "important_by_default",
+        "highlight_important",
+        "enable_event_linking",
+        "hold_to_create",
+        "show_important_counts",
+    ):
         if name in payload:
             personal_boolean(request.state.principal.identity, name, False, payload.pop(name))
 

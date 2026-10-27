@@ -1,11 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useApi } from '../api/client'
 import { useCalendars, useSettings } from '../api/hooks'
 import { calendarLabel } from '../api/providers'
 import type { AppSettings } from '../api/types'
 
-export function CalendarPicker() {
+export function CalendarPicker({ profileName, onCalendar }: { profileName: string; onCalendar: boolean }) {
   const api = useApi()
   const { data: calendars = [] } = useCalendars()
   const { data: settings } = useSettings()
@@ -13,6 +14,8 @@ export function CalendarPicker() {
   const [open, setOpen] = useState(false)
   const [selection, setSelection] = useState<number[] | null>(null)
   const wrapper = useRef<HTMLDivElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ left: 8, bottom: 64 })
   const button = useRef<HTMLButtonElement>(null)
   const id = useId()
   const hidden = selection ?? settings?.hidden_calendar_ids ?? []
@@ -25,7 +28,7 @@ export function CalendarPicker() {
   useEffect(() => {
     if (!open) return
     const outside = (event: PointerEvent) => {
-      if (!wrapper.current?.contains(event.target as Node)) setOpen(false)
+      if (!wrapper.current?.contains(event.target as Node) && !menu.current?.contains(event.target as Node)) setOpen(false)
     }
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { setOpen(false); button.current?.focus() }
@@ -34,18 +37,28 @@ export function CalendarPicker() {
     document.addEventListener('keydown', escape)
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
   }, [open])
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const anchor = button.current?.getBoundingClientRect()
+      if (!anchor) return
+      const width = menu.current?.getBoundingClientRect().width ?? 0
+      setPosition({ left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
+        bottom: window.innerHeight - anchor.top + 6 })
+    }
+    place()
+    window.addEventListener('resize', place)
+    document.addEventListener('scroll', place, true)
+    return () => { window.removeEventListener('resize', place); document.removeEventListener('scroll', place, true) }
+  }, [open, calendars])
   return (
     <div className="calendar-picker" ref={wrapper}>
-      <button ref={button} className="iconbtn iconbtn--primary" aria-label="Choose calendars"
-        aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-          <rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M7 3v5M17 3v5M7 14h3M14 14h3M7 18h3" />
-        </svg><span aria-hidden="true">⌄</span>
-      </button>
-      {open && (
-        <div id={id} className="calendar-picker__menu" role="group" aria-label="Visible calendars">
+      <button ref={button} className="navbtn" aria-pressed="true" aria-current={onCalendar ? 'page' : undefined}
+        aria-expanded={open} aria-controls={id} aria-haspopup="true" title="Choose calendars"
+        onClick={() => setOpen(!open)}>{profileName}</button>
+      {open && createPortal(
+        <div ref={menu} style={{ left: position.left, bottom: position.bottom, maxHeight: `max(44px, calc(100dvh - ${position.bottom + 8}px))` }} id={id} className="calendar-picker__menu" role="group" aria-label="Visible calendars">
           <h2>Visible calendars</h2>
-          <p className="hint">Choose calendars to show for you in this profile.</p>
           {calendars.map((calendar) => (
             <label className="calendar-picker__choice" key={calendar.id}>
               <input type="checkbox" checked={!hidden.includes(calendar.id)} disabled={save.isPending}
@@ -57,7 +70,7 @@ export function CalendarPicker() {
           {!calendars.length && <p className="hint">Add a calendar in Settings.</p>}
           <button className="btn" disabled={save.isPending || !hidden.length} onClick={() => choose([])}>Show all</button>
           {save.error && <p className="modal__error" role="alert">{save.error.message}</p>}
-        </div>
+        </div>, document.body
       )}
     </div>
   )

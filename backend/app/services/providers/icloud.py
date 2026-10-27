@@ -261,6 +261,12 @@ class ICloudProvider:
         _exclude(master, component, occurrence)
         self._write(url, calendar, resource.etag)
 
+    def get_series(self, calendar_id: str, series_id: str) -> RemoteEvent:
+        name = series_id.split(OCCURRENCE_SEP, 1)[0]
+        resource = self._dav.get(self._dav.resolve(self._collection(calendar_id), name))
+        rows = self._parse(name, resource.etag, resource.data)
+        return next(row for row in rows if row.id == name)
+
     def original_start(self, calendar_id: str, remote_id: str) -> datetime | None:
         _, occurrence = _split_id(remote_id)
         return self._naive_utc(_parse_occurrence_key(occurrence)) if occurrence else None
@@ -524,6 +530,11 @@ def _apply(component, event: RemoteEvent) -> None:
             else with_utc_until(event.recurrence_rule, event.timezone)
         )
         component.add("rrule", _vrecur(rule))
+
+    if event.exdates:
+        component.pop("EXDATE", None)
+        for moment in event.exdates:
+            component.add("exdate", moment.date() if event.all_day else moment.replace(tzinfo=UTC))
 
     component.pop("DTSTAMP", None)
     component.add("dtstamp", datetime.now(UTC))

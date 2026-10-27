@@ -70,12 +70,10 @@
 }
 
 .calendar-picker__menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  z-index: 20;
-  width: min(360px, calc(100vw - 24px));
-  max-height: 60vh;
+  position: fixed;
+  z-index: 80;
+  width: max-content;
+  max-width: calc(100vw - 16px);
   overflow-y: auto;
   padding: 14px;
   border: 1px solid var(--border);
@@ -238,13 +236,13 @@
   font-weight: 600;
 }
 
-.timegrid__dayhead[data-today='true'] .timegrid__daynum {
+.timegrid__dayhead[data-today='true'] .timegrid__date-number {
   background: var(--accent);
   color: var(--on-accent);
   border-radius: 999px;
   display: inline-block;
-  min-width: calc(2rem * var(--scale));
-  padding: 2px 6px;
+  min-width: 1.4em;
+  padding: 2px 1px;
 }
 
 .timegrid__alldaycell {
@@ -317,10 +315,6 @@
   min-height: 0;
   min-width: 0;
   padding: 0;
-}
-
-.timegrid__slot:active {
-  background: var(--accent-soft);
 }
 
 .event-block {
@@ -860,9 +854,9 @@
 
 .event-colour__choices {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .event-colour__swatch,
@@ -959,8 +953,6 @@ a.btn {
 
 @media (max-width: 640px) {
   .calpage__bar { position: relative; }
-  .calendar-picker { position: static; }
-  .calendar-picker__menu { right: 12px; }
 
   /* A phone has no room for a 52px time gutter beside seven day columns. */
   .timegrid,
@@ -1033,3 +1025,22 @@ a.btn {
 .calpage[data-highlight-important='true'] .chip[data-important='false'] {
   opacity: 0.25;
 }
+
+/* Equal-width swatches keep the complete palette on one row, even at 320px. */
+.event-colour__choices > .event-colour__swatch, .event-colour__more {
+  flex: 1 1 0; min-width: 0; min-height: 0; max-width: var(--touch); width: auto; aspect-ratio: 1; height: auto;
+}
+.event-colour__more { position: relative; display: grid; place-items: center; padding: 3px; border: 3px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 1em; }
+.event-colour__more .event-colour__custom { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; padding: 0; }
+.event-flags { display: flex; align-items: center; flex-wrap: nowrap; gap: 12px; }
+.event-flags .toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; padding: 8px 0; border: 0; background: transparent; font-size: var(--font-sm); }
+.event-more { margin: 12px 0; }
+.event-more summary { cursor: pointer; padding: 8px 0; }
+.timegrid__important-count { display: inline-flex; align-items: center; gap: 2px; margin-left: 3px; font-size: .45em; color: var(--text-dim); vertical-align: middle; }
+.timegrid__body[data-hold-to-create] { user-select: none; -webkit-touch-callout: none; }
+.event-draft { position: absolute; inset-inline: 0; z-index: 8; pointer-events: none; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 30%, transparent); font-size: var(--font-sm); overflow: hidden; }
+
+
+.timegrid__daynum { display: flex; align-items: center; justify-content: center; gap: 2px; white-space: nowrap; }
+.timegrid__important-count { margin-left: 0; font-size: max(8px, .45em); }
+@media (max-width: 600px) { .timegrid__daynum { font-size: clamp(14px, 4vw, var(--font-lg)); } }

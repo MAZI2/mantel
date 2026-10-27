@@ -3,7 +3,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAccounts, useEvents, useSettings, useSyncNow } from '../../api/hooks'
 import type { CalendarEvent } from '../../api/types'
 import { EventDialog } from '../../components/EventDialog'
-import { CalendarPicker } from '../../components/CalendarPicker'
 import { TimeGridView } from './TimeGridView'
 import { rangeFor, type Range } from './dateRange'
 
@@ -18,6 +17,7 @@ export function CalendarPage() {
   const [anchor, setAnchor] = useState(() => new Date())
   const [, setClock] = useState(() => Date.now())
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
+  const [creatingEnd, setCreatingEnd] = useState<Date | null>(null)
   const [creatingAt, setCreatingAt] = useState<Date | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const weekStartsOn = (settings?.first_day_of_week === 1 ? 1 : 0) as 0 | 1
@@ -68,7 +68,8 @@ export function CalendarPage() {
     setCreatingAt(null)
     setModalOpen(true)
   }
-  const openSlot = (start: Date) => {
+  const openSlot = (start: Date, end?: Date) => {
+    setCreatingEnd(end ?? null)
     setEditing(null)
     setCreatingAt(start)
     setModalOpen(true)
@@ -103,7 +104,7 @@ export function CalendarPage() {
             ›
           </button>
         </div>
-        <CalendarPicker />
+        <button className="iconbtn" aria-label="Add event" onClick={() => openSlot(new Date())}>+</button>
       </header>
 
       {hasGoogle && sync.isError && (
@@ -126,6 +127,8 @@ export function CalendarPage() {
           hourHeight={32 * SCALE_FACTOR[settings?.display_scale ?? 'normal']}
           onSelectEvent={openEvent}
           onSelectSlot={openSlot}
+          holdToCreate={settings?.hold_to_create ?? false}
+          showImportantCounts={settings?.show_important_counts ?? false}
         />
       </div>
 
@@ -133,6 +136,7 @@ export function CalendarPage() {
         <EventDialog
           event={editing}
           defaultStart={creatingAt}
+          defaultEnd={creatingEnd}
           onClose={() => {
             setModalOpen(false)
             setEditing(null)

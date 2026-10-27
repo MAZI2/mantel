@@ -83,7 +83,7 @@ export function useCreateEvent() {
 
 export function useUpdateEvent() {
   const api = useApi()
-  return useCalendarMutation(({ id, ...patch }: Partial<EventInput> & { id: number }) =>
+  return useCalendarMutation(({ id, ...patch }: Partial<EventInput> & { id: number; edit_scope?: string; occurrence_start?: string }) =>
     api.patch<CalendarEvent>(`/events/${id}`, patch),
   )
 }
