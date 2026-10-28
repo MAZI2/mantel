@@ -9,7 +9,7 @@ const errors = []
 async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal', allDay = false,
   weekStartsOn = 1, dayStartHour = 0, dayEndHour = 24,
   timezoneId = 'Europe/Ljubljana', fixtureEvents = null, fixtureUsers = [], fixtureCalendars = null, fixtureAccounts = [],
-  time = '2026-10-21T12:00:00+02:00', path = '/', holdToCreate = false, showImportantCounts = false, longPressMs = 750, failEvents = false } = {}) {
+  time = '2026-10-21T12:00:00+02:00', path = '/', holdToCreate = false, showImportantCounts = false, longPressMs = 750, failEvents = false, hiddenCalendarIds = null } = {}) {
   const context = await browser.newContext({ baseURL, viewport, timezoneId,
     hasTouch: true, serviceWorkers: 'block' })
   const page = await context.newPage()
@@ -18,6 +18,7 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
   const savedSettings = {
     ...settings, first_day_of_week: weekStartsOn, display_scale: scale, time_format_24h: true,
     day_start_hour: dayStartHour, day_end_hour: dayEndHour, screensaver_enabled: false, sleep_enabled: false,
+    hidden_calendar_ids: hiddenCalendarIds ?? settings.hidden_calendar_ids,
     burn_in_shift: false, bookmark_url: '', hold_to_create: holdToCreate, long_press_ms: longPressMs, show_important_counts: showImportantCounts,
   }
   await context.route('**/api/settings', (route) => {
@@ -1455,6 +1456,83 @@ try {
     } finally { await context.close() }
   }
   console.log('PASS: compact editor, one-row colour palette, no keyboard autofocus, important day count and configured-delay touch duration selection')
+
+  // Count badges show exactly the visible important titles, on hover and touch.
+  for (const viewport of [{ width:1280, height:720 }, { width:390, height:844 }, { width:320, height:640 }]) {
+    const title = `Planning and preparation ${'LongUnbrokenEventTitle'.repeat(6)}`
+    const notes = 'Join https://example.test/meet?x=1&y=two.\nHelp: www.example.test/help (bring documents).\njavascript:alert(1) <img src=x>'
+    const fixture = (id, title, start, extra = {}) => ({ id, title, calendar_id:1, calendar_name:'Family',
+      start_at:`2026-10-${start}T14:00:00+02:00`, end_at:`2026-10-${start}T15:00:00+02:00`,
+      important:true, all_day:false, editable:true, color:'#38bdf8', user_id:null, recurring:false, origin:'local', sync_state:'synced', ...extra })
+    const events = [fixture(99701, title, '19', {description:notes}), fixture(99702, 'All-day priority', '19', {
+      all_day:true, start_at:'2026-10-19T00:00:00Z', end_at:'2026-10-20T00:00:00Z' }),
+      fixture(99703, 'Not important', '19', {important:false}), fixture(99704, 'Hidden calendar priority', '19', {calendar_id:2}),
+      fixture(99705, 'Weekend priority', '25')]
+    const {context,page} = await open({viewport, fixtureEvents:events, showImportantCounts:true, hiddenCalendarIds:[2], holdToCreate:true})
+    try {
+      await context.route('https://example.test/**', (route) => route.fulfill({contentType:'text/html',body:'Link opened'}))
+      const badge = page.locator('.timegrid__dayhead').first().getByRole('button', {name:'2 important events',exact:true})
+      const tooltip = page.getByRole('tooltip')
+      if (viewport.width === 1280) await badge.hover()
+      else await badge.tap()
+      await tooltip.waitFor()
+      if (viewport.width === 390 && process.env.ARTIFACT_DIR) await page.screenshot({path:`${process.env.ARTIFACT_DIR}/important-titles.png`})
+      assert.equal(await tooltip.locator('li').count(), 2)
+      assert.equal(await tooltip.getByText(title,{exact:true}).count(), 1)
+      assert.equal(await tooltip.getByText('All-day priority',{exact:true}).count(), 1)
+      assert.equal(await tooltip.getByText('Not important',{exact:true}).count(), 0)
+      assert.equal(await tooltip.getByText('Hidden calendar priority',{exact:true}).count(), 0)
+      assert.ok(await tooltip.evaluate((el) => el.scrollWidth <= el.clientWidth+1 && el.getBoundingClientRect().left >= 0 && el.getBoundingClientRect().right <= innerWidth))
+      assert.equal(await page.getByRole('dialog').count(), 0, 'count interaction must not open an event')
+      if (viewport.width === 1280) {
+        await tooltip.hover()
+        await page.clock.runFor(200)
+        assert.equal(await tooltip.isVisible(), true, 'hovering the list should keep it readable')
+        await page.mouse.move(2, viewport.height-100)
+        await page.clock.runFor(200)
+      } else await badge.tap()
+      await tooltip.waitFor({state:'hidden'})
+      const lastBadge = page.locator('.timegrid__dayhead').last().getByRole('button', {name:'1 important events',exact:true})
+      await lastBadge.tap()
+      await tooltip.waitFor()
+      assert.ok(await tooltip.evaluate((el) => el.getBoundingClientRect().right <= innerWidth))
+      await page.keyboard.press('Escape')
+      await tooltip.waitFor({state:'hidden'})
+      await page.getByRole('button',{name:'Add event',exact:true}).focus()
+      await page.keyboard.press('Tab')
+      await tooltip.waitFor()
+      await page.keyboard.press('Escape')
+      await tooltip.waitFor({state:'hidden'})
+      await badge.tap()
+      await tooltip.waitFor()
+      await page.locator('h1').click()
+      await tooltip.waitFor({state:'hidden'})
+      const block = page.locator('.event-block').filter({hasText:title})
+      await block.click()
+      const details = page.locator('.event-details')
+      const link = details.getByRole('link',{name:'https://example.test/meet?x=1&y=two',exact:true})
+      assert.equal(await link.getAttribute('href'), 'https://example.test/meet?x=1&y=two')
+      assert.equal(await details.locator('img').count(), 0)
+      if (viewport.width === 390 && process.env.ARTIFACT_DIR) await page.screenshot({path:`${process.env.ARTIFACT_DIR}/note-links.png`})
+      const opened = page.waitForEvent('popup')
+      await link.click()
+      const tab = await opened
+      await tab.waitForLoadState()
+      assert.equal(tab.url(), 'https://example.test/meet?x=1&y=two')
+      await tab.close()
+      assert.equal(await details.isVisible(), true)
+      await page.getByRole('button',{name:'Edit',exact:true}).click()
+      await page.locator('.event-more summary').click()
+      const field = page.getByLabel('Notes',{exact:true})
+      assert.equal(await field.inputValue(), notes)
+      await field.fill('Paste https://example.test/new-room here.')
+      const preview = page.getByLabel('Links in notes',{exact:true})
+      assert.equal(await preview.getByRole('link').getAttribute('href'), 'https://example.test/new-room')
+      assert.equal(await field.inputValue(), 'Paste https://example.test/new-room here.')
+      await page.getByRole('button',{name:'Cancel',exact:true}).click()
+    } finally {await context.close()}
+  }
+  console.log('PASS: important-title popups support hover, touch, keyboard and long mobile titles; pasted note links open from details and editor previews')
 
   assert.deepEqual(errors, [], 'browser JavaScript errors')
 } finally {

@@ -1,3 +1,4 @@
+import { EventNotes } from './EventNotes'
 import { EventLinkForm } from './EventLinkForm'
 import { RecurringDeleteChoices } from './RecurringDeleteChoices'
 import { format, isSameDay } from 'date-fns'
@@ -67,7 +68,7 @@ function EventDetails({ event, onEdit, onClose }: {
       if (!busy) onClose()
     }
     if (e.key !== 'Tab') return
-    const buttons = card.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')
+    const buttons = card.current?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')
     if (!buttons?.length) {
       e.preventDefault()
       return
@@ -113,7 +114,7 @@ function EventDetails({ event, onEdit, onClose }: {
           {event.location && <div><dt>Location</dt><dd>{event.location}</dd></div>}
           {event.recurring && <div><dt>Repeats</dt><dd>{event.recurrence_text || 'Repeating event'}</dd></div>}
         </dl>
-        {event.description && <p className="event-details__notes">{event.description}</p>}
+        {event.description && <p className="event-details__notes"><EventNotes text={event.description} /></p>}
         <label className="toggle">
           <input type="checkbox" checked={important} disabled={busy}
             onChange={(e) => {

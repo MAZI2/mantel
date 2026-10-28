@@ -210,3 +210,9 @@ original resource: destination views create no additional Google event or connec
 edits go through the original profile's normal provider queue. Unavailable references
 are isolated, and event loading errors leave the calendar shell, Settings and Retry
 available. Positive important-event counts use a larger number on a blue circular badge.
+
+Hover over an important-event count, or tap it on a touchscreen, to see the full
+titles of that day's visible important events. Tap again, press Escape or tap
+elsewhere to dismiss the list. Plain web addresses pasted into event notes are
+clickable in event details; the editor shows clickable links beneath the notes
+field while keeping the saved notes as plain text.

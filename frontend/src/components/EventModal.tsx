@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '../api/client'
 import { RecurringEditChoices } from './RecurringEditChoices'
+import { EventNotes } from './EventNotes'
 import { RecurringDeleteChoices } from './RecurringDeleteChoices'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -351,12 +352,14 @@ export function EventModal({ event, defaultStart, defaultEnd, onClose }: Props) 
           <label className="field">
             <span>Notes</span>
             <textarea
+              aria-label="Notes"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               disabled={readOnly}
               rows={2}
             />
           </label>
+          <EventNotes text={description} linksOnly />
 
         </details>
 

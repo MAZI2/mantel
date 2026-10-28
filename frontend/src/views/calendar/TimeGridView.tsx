@@ -1,5 +1,6 @@
 import { format, isToday } from 'date-fns'
 import { useLayoutEffect, useMemo, useRef } from 'react'
+import { ImportantDayCount } from '../../components/ImportantDayCount'
 import type { CalendarEvent } from '../../api/types'
 import { useHoldToCreate, type DraftRange } from './useHoldToCreate'
 import { overlapsDay, startOfLocalDay } from './overlap'
@@ -58,11 +59,11 @@ export function TimeGridView({
       <div className="timegrid__head">
         <div className="timegrid__gutter-head" />
         {days.map((day) => {
-          const count = shownEvents.filter((event) => event.important !== false && overlapsDay(event, day)).length
+          const important = shownEvents.filter((event) => event.important !== false && overlapsDay(event, day))
           return <div key={day.toISOString()} className="timegrid__dayhead" data-today={isToday(day)}>
             <div className="timegrid__dayname">{format(day, 'EEE')}</div>
             <div className="timegrid__daynum"><span className="timegrid__date-number">{format(day, 'd')}</span>
-              {showImportantCounts && count > 0 && <span className="timegrid__important-count" aria-label={`${count} important events`}>{count}</span>}
+              {showImportantCounts && important.length > 0 && <ImportantDayCount day={day} events={important} />}
             </div>
           </div>
         })}
