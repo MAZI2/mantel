@@ -12,6 +12,8 @@ interface Props {
   use24h: boolean
   hourHeight: number
   showImportantCounts?: boolean
+  longPressMs?: number
+  onMoveEvent: (event: CalendarEvent, start: Date, end: Date) => void
   holdToCreate?: boolean
   onSelectEvent: (e: CalendarEvent) => void
   onSelectSlot: (start: Date, end?: Date) => void
@@ -34,9 +36,11 @@ export function TimeGridView({
   onSelectSlot,
   showImportantCounts = false,
   holdToCreate = false,
+  longPressMs = 750,
+  onMoveEvent,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
-  const selection = useHoldToCreate(scrollRef, days, dayStartHour, dayEndHour, hourHeight, holdToCreate, onSelectSlot)
+  const selection = useHoldToCreate(scrollRef, days, dayStartHour, dayEndHour, hourHeight, holdToCreate, longPressMs, events, onSelectSlot, onMoveEvent)
   const hours = Array.from({ length: dayEndHour - dayStartHour }, (_, i) => dayStartHour + i)
 
   useLayoutEffect(() => {
@@ -45,14 +49,16 @@ export function TimeGridView({
     if (scrollRef.current && offset > 0) scrollRef.current.scrollTop = offset
   }, [dayStartHour, hourHeight])
 
-  const allDay = events.filter((e) => e.all_day)
+  const shownEvents = events.map((event) => selection.draft?.event?.id === event.id && selection.draft.event.start_at === event.start_at
+    ? { ...event, start_at: selection.draft.start.toISOString(), end_at: selection.draft.end.toISOString() } : event)
+  const allDay = shownEvents.filter((e) => e.all_day)
 
   return (
-    <div className="timegrid" style={{ ['--days' as string]: days.length }}>
+    <div className="timegrid" data-hold-to-create={holdToCreate || undefined} {...selection.handlers} style={{ ['--days' as string]: days.length }}>
       <div className="timegrid__head">
         <div className="timegrid__gutter-head" />
         {days.map((day) => {
-          const count = events.filter((event) => event.important !== false && overlapsDay(event, day)).length
+          const count = shownEvents.filter((event) => event.important !== false && overlapsDay(event, day)).length
           return <div key={day.toISOString()} className="timegrid__dayhead" data-today={isToday(day)}>
             <div className="timegrid__dayname">{format(day, 'EEE')}</div>
             <div className="timegrid__daynum"><span className="timegrid__date-number">{format(day, 'd')}</span>
@@ -67,19 +73,19 @@ export function TimeGridView({
           <div className="timegrid__gutter-head">all day</div>
           {days.map((day) => (
             <div key={day.toISOString()} className="timegrid__alldaycell">
-              <AllDayChips day={day} events={allDay} onSelectEvent={onSelectEvent} />
+              <AllDayChips day={day} events={allDay} moving={selection.draft?.event} onSelectEvent={onSelectEvent} />
             </div>
           ))}
         </div>
       )}
 
-      <div className="timegrid__body" ref={scrollRef} data-hold-to-create={holdToCreate || undefined} {...selection.handlers}>
+      <div className="timegrid__body" ref={scrollRef} data-hold-to-create={holdToCreate || undefined}>
         <HourGutter hours={hours} hourHeight={hourHeight} use24h={use24h} />
         {days.map((day) => (
           <DayColumn
             key={day.toISOString()}
             day={day}
-            events={events}
+            events={shownEvents}
             hours={hours}
             dayStartHour={dayStartHour}
             hourHeight={hourHeight}
@@ -176,6 +182,9 @@ export function DayColumn({
         <button
           key={event.id}
           className="event-block"
+          data-event-id={event.id}
+          data-event-start={event.start_at}
+          data-moving={draft?.event?.id === event.id || undefined}
           data-important={event.important !== false}
           // A block this short cannot fit a title above a time; the CSS
           // lays those out on one line instead.
@@ -197,7 +206,7 @@ export function DayColumn({
           <span className="event-block__end">{formatTime(new Date(event.end_at), use24h)}</span>
         </button>
       ))}
-      {draft && draft.start < new Date(new Date(day).setDate(day.getDate() + 1)) && draft.end > day && (
+      {draft && !draft.event && draft.start < new Date(new Date(day).setDate(day.getDate() + 1)) && draft.end > day && (
         <div className="event-draft" aria-label="New event duration" style={{
           top: (draft.start.toDateString() === day.toDateString() ? draft.start.getHours() + draft.start.getMinutes() / 60 - dayStartHour : 0) * hourHeight,
           bottom: (draft.end.toDateString() === day.toDateString() ? hours.length + dayStartHour - draft.end.getHours() - draft.end.getMinutes() / 60 : 0) * hourHeight,
@@ -213,9 +222,11 @@ export function AllDayChips({
   day,
   events,
   onSelectEvent,
+  moving,
 }: {
   day: Date
   events: CalendarEvent[]
+  moving?: CalendarEvent
   onSelectEvent: (e: CalendarEvent) => void
 }) {
   return (
@@ -226,6 +237,9 @@ export function AllDayChips({
           <button
             key={e.id}
             className="chip"
+            data-moving={moving?.id === e.id || undefined}
+            data-event-id={e.id}
+            data-event-start={e.start_at}
             data-important={e.important !== false}
             style={{ background: e.color }}
             onClick={() => onSelectEvent(e)}

@@ -99,6 +99,22 @@ def convert_slot(stamp, old_all_day, old_timezone, selected, new_start, new_all_
     return to_utc(datetime.combine(day, target.time()).replace(tzinfo=new_zone))
 
 
+def shift_weekdays(rule: str | None, days: int) -> str | None:
+    if not rule or "FREQ=WEEKLY" not in rule or days % 7 == 0:
+        return rule
+    names = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+    parts = []
+    for part in rule.split(";"):
+        if part.startswith("BYDAY="):
+            selected = part[6:].split(",")
+            selected = [
+                value[:-2] + names[(names.index(value[-2:]) + days) % 7] for value in selected
+            ]
+            part = "BYDAY=" + ",".join(selected)
+        parts.append(part)
+    return ";".join(parts)
+
+
 def prepare(db, event: Event, scope: str, moment: datetime | None, changes: dict) -> Event:
     if moment is None:
         raise HTTPException(400, "Choose the occurrence to edit.")
@@ -140,7 +156,22 @@ def prepare(db, event: Event, scope: str, moment: datetime | None, changes: dict
             changes["all_day"],
             changes.get("timezone"),
         )
+    old_zone = zone(None if event.all_day else event.timezone or master.timezone)
+    new_zone = zone(
+        None
+        if changes.get("all_day", event.all_day)
+        else changes.get("timezone") or event.timezone or master.timezone
+    )
+    day_shift = (
+        as_utc(new_start).astimezone(new_zone).date()
+        - as_utc(selected_start).astimezone(old_zone).date()
+    ).days
+    unchanged_rule = (
+        "recurrence_rule" not in changes or changes["recurrence_rule"] == master.recurrence_rule
+    )
     if scope == "all":
+        if unchanged_rule:
+            changes["recurrence_rule"] = shift_weekdays(master.recurrence_rule, day_shift)
         tz = zone(None if master.all_day else master.timezone)
         delta = as_utc(new_start).astimezone(tz).replace(tzinfo=None) - as_utc(
             selected_start
@@ -195,7 +226,7 @@ def prepare(db, event: Event, scope: str, moment: datetime | None, changes: dict
         values["recurrence_rule"], values["exdates"] = None, None
     else:
         if "recurrence_rule" not in changes or changes["recurrence_rule"] == master.recurrence_rule:
-            values["recurrence_rule"] = remaining_rule(master, moment)
+            values["recurrence_rule"] = shift_weekdays(remaining_rule(master, moment), day_shift)
         values["exdates"] = (
             ",".join(
                 (convert_slot(d, *conversion) if conversion else d).isoformat()

@@ -1037,10 +1037,18 @@ a.btn {
 .event-more { margin: 12px 0; }
 .event-more summary { cursor: pointer; padding: 8px 0; }
 .timegrid__important-count { display: inline-flex; align-items: center; gap: 2px; margin-left: 3px; font-size: .45em; color: var(--text-dim); vertical-align: middle; }
-.timegrid__body[data-hold-to-create] { user-select: none; -webkit-touch-callout: none; }
+.timegrid[data-hold-to-create], .timegrid__body[data-hold-to-create] { user-select: none; -webkit-touch-callout: none; }
 .event-draft { position: absolute; inset-inline: 0; z-index: 8; pointer-events: none; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 30%, transparent); font-size: var(--font-sm); overflow: hidden; }
 
 
 .timegrid__daynum { display: flex; align-items: center; justify-content: center; gap: 2px; white-space: nowrap; }
 .timegrid__important-count { margin-left: 0; font-size: max(8px, .45em); }
 @media (max-width: 600px) { .timegrid__daynum { font-size: clamp(14px, 4vw, var(--font-lg)); } }
+
+.timegrid__important-count {
+  display: inline-flex; justify-content: center; align-items: center;
+  min-width: 1.55em; height: 1.55em; padding: 0 .2em; border-radius: 50%;
+  font-size: max(11px, .65em); font-weight: 700; line-height: 1;
+  background: #2563eb; color: #fff;
+}
+.event-block[data-moving], .chip[data-moving] { opacity: .7; outline: 2px solid var(--accent); }

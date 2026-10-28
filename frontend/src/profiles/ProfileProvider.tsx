@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ApiContext, createApi, selectProfile, type ProfileApi } from '../api/client'
+import { ApiContext, ApiError, createApi, selectProfile, type ProfileApi } from '../api/client'
 import { eventQueryOptions } from '../api/hooks'
 import type { AppSettings, CalendarInfo, LinkedAccount, User } from '../api/types'
 import { applyTheme } from '../theme'
@@ -94,15 +94,23 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         if (id) {
           // Fetch independent resources together, then use the actual week settings.
           // Nothing renders with fallback hours, scale, theme or an empty event list.
+          const optional = async <T,>(request: Promise<T>) => {
+            try { return await request } catch (error) {
+              if (error instanceof ApiError && [401, 403].includes(error.status)) throw error
+              // Data failures belong in the mounted page, where Settings and profile
+              // switching remain available. Access failures still stop the profile.
+              return undefined
+            }
+          }
           const [saved] = await Promise.all([
             client.fetchQuery({ queryKey: ['settings'], queryFn: () => api.get<AppSettings>('/settings') }),
-            client.fetchQuery({ queryKey: ['accounts'], queryFn: () => api.get<LinkedAccount[]>('/accounts') }),
-            client.fetchQuery({ queryKey: ['calendars'], queryFn: () => api.get<CalendarInfo[]>('/calendars') }),
-            client.fetchQuery({ queryKey: ['users'], queryFn: () => api.get<User[]>('/users') }),
+            optional(client.fetchQuery({ queryKey: ['accounts'], queryFn: () => api.get<LinkedAccount[]>('/accounts') })),
+            optional(client.fetchQuery({ queryKey: ['calendars'], queryFn: () => api.get<CalendarInfo[]>('/calendars') })),
+            optional(client.fetchQuery({ queryKey: ['users'], queryFn: () => api.get<User[]>('/users') })),
           ])
           settings = saved
           const range = rangeFor('week', new Date(), settings.first_day_of_week === 1 ? 1 : 0)
-          await client.fetchQuery(eventQueryOptions(api, range.start, range.end))
+          await optional(client.fetchQuery(eventQueryOptions(api, range.start, range.end)))
         }
         controller.signal.throwIfAborted()
         selectProfile(verified.identity, id)

@@ -97,6 +97,6 @@ recurring deletion, and denied access after revoking source membership. Removing
 the link keeps the original calendar. The browser suite exercises these flows.
 
 Empty calendar hours are passive: normal clicks/taps must not open an event editor.
-Create with the top-bar + button or the optional three-second hold-and-drag gesture.
+Create with the top-bar + button or the optional configurable hold-and-drag gesture.
 The active profile button opens a compact visibility drop-up; inactive buttons switch
 profiles. Important day counts are a personal per-profile opt-in and omit zeroes/icons.

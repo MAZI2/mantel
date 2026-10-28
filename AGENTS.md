@@ -174,5 +174,9 @@ is global across profiles; the star filter is personal within the selected profi
 Individual event links live in the registry without copied content, use a separate
 negative-ID namespace, and require both memberships for every read/write. Never expose
 them in bearer feeds. Event-link actions and hold-to-create are personal per-profile
-options, disabled by default. The three-second gesture must leave normal scrolling
-untouched before it arms, suppress the following click, and never autofocus a text field.
+options, disabled by default. The configurable hold gesture must leave normal scrolling untouched before it arms,
+suppress the following click, and never autofocus a text field. Empty-grid holds create;
+existing-event holds move without changing duration. Recurring moves require a scope.
+Calendar-wide imports may include individual references: preserve both ID namespaces
+and recheck every intermediate profile membership when projecting those references.
+Event-loading failures must not prevent the profile shell or Settings from opening.

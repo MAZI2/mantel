@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { RefObject } from 'react'
+import type { CalendarEvent } from '../../api/types'
 
-export interface DraftRange { start: Date; end: Date }
+export interface DraftRange { start: Date; end: Date; event?: CalendarEvent }
+interface Gesture {
+  id: number; x: number; y: number; initialX: number; initialY: number
+  start: Date; active: boolean; timer: number; event?: CalendarEvent
+}
 
-/** Scrolling remains native until a stationary three-second hold has armed selection. */
+/** Native scrolling wins until the stationary hold arms a create or move gesture. */
 export function useHoldToCreate(body: RefObject<HTMLDivElement | null>, days: Date[], dayStart: number,
-  dayEnd: number, hourHeight: number, enabled: boolean, onCreate: (start: Date, end?: Date) => void) {
+  dayEnd: number, hourHeight: number, enabled: boolean, delay: number, events: CalendarEvent[],
+  onCreate: (start: Date, end?: Date) => void, onMove: (event: CalendarEvent, start: Date, end: Date) => void) {
   const [draft, setDraft] = useState<DraftRange | null>(null)
-  const gesture = useRef<{ id: number; x: number; y: number; initialX: number; initialY: number;
-    start: Date; active: boolean; timer: number } | null>(null)
+  const gesture = useRef<Gesture | null>(null)
   const suppressUntil = useRef(0)
   const locate = (x: number, y: number, end = false) => {
     const columns = body.current?.querySelectorAll<HTMLElement>('.timegrid__col')
@@ -22,45 +27,64 @@ export function useHoldToCreate(body: RefObject<HTMLDivElement | null>, days: Da
     time.setHours(0, minutes, 0, 0)
     return time
   }
+  const rangeAt = (g: Gesture, x: number, y: number): DraftRange | null => {
+    const point = locate(x, y, !g.event)
+    if (!point) return null
+    if (!g.event) return { start: g.start, end: new Date(Math.max(point.getTime(), g.start.getTime() + 15 * 60_000)) }
+    const event = g.event
+    let shift = point.getTime() - g.start.getTime()
+    if (event.all_day) {
+      // All-day dates are UTC dates; a DST boundary must not add or remove an hour.
+      const day = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+      shift = day(point) - day(g.start)
+    }
+    return { event, start: new Date(new Date(event.start_at).getTime() + shift),
+      end: new Date(new Date(event.end_at).getTime() + shift) }
+  }
   const update = () => {
     const g = gesture.current
-    if (!g?.active) return
-    const end = locate(g.x, g.y, true)
-    if (end) setDraft({ start: g.start, end: new Date(Math.max(end.getTime(), g.start.getTime() + 15 * 60_000)) })
+    if (g?.active) setDraft(rangeAt(g, g.x, g.y))
   }
   const cancel = () => {
-    const g = gesture.current
-    if (g) window.clearTimeout(g.timer)
+    if (gesture.current) window.clearTimeout(gesture.current.timer)
     gesture.current = null
     setDraft(null)
   }
   useEffect(() => {
-    const node = body.current
     const prevent = (e: TouchEvent) => { if (gesture.current?.active) e.preventDefault() }
-    node?.addEventListener('touchmove', prevent, { passive: false })
-    return () => { node?.removeEventListener('touchmove', prevent); if (gesture.current) window.clearTimeout(gesture.current.timer) }
-  }, [body])
+    document.addEventListener('touchmove', prevent, { passive: false })
+    return () => {
+      document.removeEventListener('touchmove', prevent)
+      if (gesture.current) window.clearTimeout(gesture.current.timer)
+    }
+  }, [])
   useEffect(() => {
     if (!draft) return
     const timer = window.setInterval(() => {
       const g = gesture.current, node = body.current
-      if (!g?.active || !node) return
+      if (!g?.active || !node || g.event?.all_day) return
       const rect = node.getBoundingClientRect()
       const speed = g.y < rect.top + 35 ? -8 : g.y > rect.bottom - 35 ? 8 : 0
       if (speed) { node.scrollTop += speed; update() }
     }, 30)
     return () => window.clearInterval(timer)
-    // Coordinates are read from refs; the timer need not restart on every movement.
+    // Pointer positions are read from refs while this gesture remains armed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!draft])
   return { draft, handlers: {
     onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!e.isPrimary && gesture.current) { cancel(); suppressUntil.current = Date.now() + 1000; return }
       if (!enabled || !e.isPrimary || e.button !== 0) return
       if (gesture.current) { cancel(); return }
+      const target = e.target as HTMLElement
+      const eventElement = target.closest<HTMLElement>('[data-event-id]')
+      const event = eventElement ? events.find((item) => String(item.id) === eventElement.dataset.eventId && item.start_at === eventElement.dataset.eventStart) : undefined
+      if (eventElement && (!event || !event.editable)) return
+      if (!event && !target.closest('.timegrid__col')) return
       const start = locate(e.clientX, e.clientY)
       if (!start) return
-      const g = { id: e.pointerId, x: e.clientX, y: e.clientY, initialX: e.clientX, initialY: e.clientY,
-        start, active: false, timer: 0 }
+      const g: Gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, initialX: e.clientX, initialY: e.clientY,
+        start, active: false, timer: 0, event }
       gesture.current = g
       g.timer = window.setTimeout(() => {
         if (gesture.current !== g) return
@@ -68,7 +92,7 @@ export function useHoldToCreate(body: RefObject<HTMLDivElement | null>, days: Da
         suppressUntil.current = Date.now() + 1000
         body.current?.setPointerCapture(g.id)
         update()
-      }, 3000)
+      }, delay)
     },
     onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
       const g = gesture.current
@@ -80,11 +104,13 @@ export function useHoldToCreate(body: RefObject<HTMLDivElement | null>, days: Da
     onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => {
       const g = gesture.current
       if (!g || e.pointerId !== g.id) return
-      const end = locate(e.clientX, e.clientY, true)
-      if (g.active && end) {
+      const range = rangeAt(g, e.clientX, e.clientY)
+      if (g.active && range) {
         e.preventDefault()
         suppressUntil.current = Date.now() + 1000
-        onCreate(g.start, new Date(Math.max(end.getTime(), g.start.getTime() + 15 * 60_000)))
+        if (g.event) {
+          if (range.start.getTime() !== new Date(g.event.start_at).getTime()) onMove(g.event, range.start, range.end)
+        } else onCreate(range.start, range.end)
       }
       cancel()
     },

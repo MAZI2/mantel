@@ -234,7 +234,18 @@ def list_events(
                     timezone=timezone,
                     db=source_db,
                 )
-                result.extend(calendar_links.event_output(link, event) for event in source_events)
+                for event in source_events:
+                    try:
+                        result.append(calendar_links.event_output(link, event))
+                    except HTTPException as exc:
+                        if exc.status_code != 409:
+                            raise
+                        # One unrepresentable link must not hide unrelated calendar events.
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "Skipping invalid linked event in calendar %s", link.id
+                        )
         except HTTPException as exc:
             if exc.status_code not in (403, 404):
                 raise
@@ -305,7 +316,7 @@ def get_event(event_id: int, db: Session = Depends(get_db)) -> EventOut:
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
-            if _load(source_db, original).calendar_id != source_cal.id:
+            if get_event(original, source_db).calendar_id != source_cal.id:
                 raise HTTPException(404, "Event not found.")
             return calendar_links.event_output(link, get_event(original, source_db))
     return _event_out(db, _load(db, event_id))
@@ -319,7 +330,7 @@ def edit_context(event_id: int, db: Session = Depends(get_db)) -> dict:
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
-            if _load(source_db, original).calendar_id != source_cal.id:
+            if get_event(original, source_db).calendar_id != source_cal.id:
                 raise HTTPException(404, "Event not found.")
             return edit_context(original, source_db)
     event = _load(db, event_id)
@@ -389,7 +400,7 @@ def _link_event(event_id, payload, db):
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
-            if _load(source_db, original).calendar_id != source_cal.id:
+            if get_event(original, source_db).calendar_id != source_cal.id:
                 raise HTTPException(404, "Event not found.")
             return _link_event(original, payload, source_db)
     event = _load(db, event_id)
@@ -552,7 +563,7 @@ def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
-            if _load(source_db, original).calendar_id != source_cal.id:
+            if get_event(original, source_db).calendar_id != source_cal.id:
                 raise HTTPException(404, "Event not found.")
             if payload.calendar_id is not None and payload.calendar_id != link.id:
                 raise HTTPException(400, "Move linked events from their original profile.")
@@ -654,7 +665,7 @@ def update_importance(
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
-            if _load(source_db, original).calendar_id != source_cal.id:
+            if get_event(original, source_db).calendar_id != source_cal.id:
                 raise HTTPException(404, "Event not found.")
             return calendar_links.event_output(
                 link, update_importance(original, payload, source_db)
@@ -687,7 +698,7 @@ def delete_event(
     if event_id < 0:
         link, original = calendar_links.event_source(db, event_id)
         with calendar_links.source_calendar(link) as (source_db, source_cal, _):
-            if _load(source_db, original).calendar_id != source_cal.id:
+            if get_event(original, source_db).calendar_id != source_cal.id:
                 raise HTTPException(404, "Event not found.")
             return delete_event(original, scope, occurrence_start, timezone, source_db)
     ev = _load(db, event_id)

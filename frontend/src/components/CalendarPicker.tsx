@@ -8,7 +8,7 @@ import type { AppSettings } from '../api/types'
 
 export function CalendarPicker({ profileName, onCalendar }: { profileName: string; onCalendar: boolean }) {
   const api = useApi()
-  const { data: calendars = [] } = useCalendars()
+  const { data: calendars = [], error: calendarError, refetch } = useCalendars()
   const { data: settings } = useSettings()
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
@@ -67,7 +67,8 @@ export function CalendarPicker({ profileName, onCalendar }: { profileName: strin
               <span>{calendarLabel(calendar)}</span>
             </label>
           ))}
-          {!calendars.length && <p className="hint">Add a calendar in Settings.</p>}
+          {calendarError && <p role="alert">Could not load calendars. <button className="btn" onClick={() => void refetch()}>Retry</button></p>}
+          {!calendarError && !calendars.length && <p className="hint">Add a calendar in Settings.</p>}
           <button className="btn" disabled={save.isPending || !hidden.length} onClick={() => choose([])}>Show all</button>
           {save.error && <p className="modal__error" role="alert">{save.error.message}</p>}
         </div>, document.body

@@ -15,9 +15,20 @@ from ..serializers import calendar_color, calendar_out
 # Both components fit well below JavaScript's exact integer limit.
 _BITS = 26
 _MASK = (1 << _BITS) - 1
+REFERENCE_MARKER = 1 << 52
+PROJECTION_MARKER = REFERENCE_MARKER + (1 << 50)
+_PROJECTION_BITS = 25
+_PROJECTION_MASK = (1 << _PROJECTION_BITS) - 1
 
 
 def virtual_id(calendar_id: int, event_id: int) -> int:
+    if -PROJECTION_MARKER < event_id < -REFERENCE_MARKER:
+        reference_id = -event_id - REFERENCE_MARKER
+        if not (0 < calendar_id <= _PROJECTION_MASK and 0 < reference_id <= _PROJECTION_MASK):
+            raise HTTPException(
+                409, "This event link cannot be displayed in the imported calendar."
+            )
+        return -(PROJECTION_MARKER + (calendar_id << _PROJECTION_BITS) + reference_id)
     if not (0 < calendar_id <= _MASK and 0 < event_id <= _MASK):
         raise HTTPException(409, "This event cannot be represented as a linked event.")
     return -((calendar_id << _BITS) | event_id)
@@ -85,8 +96,16 @@ def event_output(link: Calendar, event: EventOut) -> EventOut:
 
 
 def event_source(db, event_id: int):
-    calendar_id, original_id = decode(event_id)
+    if event_id < -PROJECTION_MARKER:
+        payload = -event_id - PROJECTION_MARKER
+        calendar_id = payload >> _PROJECTION_BITS
+        reference_id = payload & _PROJECTION_MASK
+        if reference_id == 0:
+            raise HTTPException(404, "Event not found.")
+        original_id = -(REFERENCE_MARKER + reference_id)
+    else:
+        calendar_id, original_id = decode(event_id)
     link = db.get(Calendar, calendar_id)
-    if link is None or not link.is_linked or original_id <= 0:
+    if link is None or not link.is_linked or original_id == 0:
         raise HTTPException(404, "Event not found.")
     return link, original_id

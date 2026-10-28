@@ -85,3 +85,18 @@ def test_optional_gestures_and_linking_are_personal_within_profile(client):
         )
         assert client.get("/api/settings", headers=headers(profile=shared)).json()[key] is False
         assert client.patch("/api/settings", json={key: "yes"}).status_code == 400
+
+
+def test_long_press_delay_is_validated_and_personal_per_profile(client):
+    personal, shared = setup_shared(client)
+    assert client.get("/api/settings").json()["long_press_ms"] == 750
+    saved = client.patch("/api/settings", json={"long_press_ms": 450})
+    assert saved.status_code == 200 and saved.json()["long_press_ms"] == 450
+    assert client.get("/api/settings").json()["long_press_ms"] == 450
+    assert (
+        client.get("/api/settings", headers=headers("local-admin", shared)).json()["long_press_ms"]
+        == 750
+    )
+    for value in [True, None, 99, 10001, 150.5, "750"]:
+        assert client.patch("/api/settings", json={"long_press_ms": value}).status_code == 400
+    assert client.get("/api/settings").json()["long_press_ms"] == 450

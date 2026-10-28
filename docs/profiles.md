@@ -188,8 +188,11 @@ editing the reference always requires access to both profiles. Editing/deleting 
 the original event. A recurring event links the selected occurrence; its reference
 follows scoped edits of that occurrence. Bearer feeds exclude these references.
 
-**Hold and drag to create events** is also personal per profile and off by default.
-A stationary three-second hold arms a live duration selection, even over timed events.
+**Hold and drag to create or move events** is also personal per profile and off by default.
+A stationary hold on an empty time-grid spot arms a live duration selection. Holding
+an editable event instead moves it while preserving its duration, including all-day
+events. Recurring moves ask which occurrences to change. The personal **Long press
+delay (ms)** setting applies to both actions, defaults to 750 ms and accepts 100–10000 ms.
 Scrolling before the hold completes cancels it. Dragging can span days and auto-scrolls
 near the timeline edges. Releasing opens the editor with both dates/times filled in.
 
@@ -199,3 +202,11 @@ overlapping that day. It is personal per profile, off by default, and shown only
 positive counts. The active profile button opens a compact calendar-visibility drop-up;
 clicking another profile switches to it. Normal empty-grid clicks do nothing; use the
 top-bar + button or enable hold-and-drag to create an event.
+
+Individual references can also appear through imported calendars. Their IDs remain
+opaque, and access is checked against the viewing profile, the imported calendar's
+profile and the original event's profile. A Google-origin event stays linked to its
+original resource: destination views create no additional Google event or connection;
+edits go through the original profile's normal provider queue. Unavailable references
+are isolated, and event loading errors leave the calendar shell, Settings and Retry
+available. Positive important-event counts use a larger number on a blue circular badge.

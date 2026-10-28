@@ -9,7 +9,7 @@ const errors = []
 async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal', allDay = false,
   weekStartsOn = 1, dayStartHour = 0, dayEndHour = 24,
   timezoneId = 'Europe/Ljubljana', fixtureEvents = null, fixtureUsers = [], fixtureCalendars = null, fixtureAccounts = [],
-  time = '2026-10-21T12:00:00+02:00', path = '/', holdToCreate = false, showImportantCounts = false } = {}) {
+  time = '2026-10-21T12:00:00+02:00', path = '/', holdToCreate = false, showImportantCounts = false, longPressMs = 750, failEvents = false } = {}) {
   const context = await browser.newContext({ baseURL, viewport, timezoneId,
     hasTouch: true, serviceWorkers: 'block' })
   const page = await context.newPage()
@@ -18,7 +18,7 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
   const savedSettings = {
     ...settings, first_day_of_week: weekStartsOn, display_scale: scale, time_format_24h: true,
     day_start_hour: dayStartHour, day_end_hour: dayEndHour, screensaver_enabled: false, sleep_enabled: false,
-    burn_in_shift: false, bookmark_url: '', hold_to_create: holdToCreate, show_important_counts: showImportantCounts,
+    burn_in_shift: false, bookmark_url: '', hold_to_create: holdToCreate, long_press_ms: longPressMs, show_important_counts: showImportantCounts,
   }
   await context.route('**/api/settings', (route) => {
     if (route.request().method() === 'PATCH') Object.assign(savedSettings, route.request().postDataJSON())
@@ -30,6 +30,7 @@ async function open({ viewport = { width: 1280, height: 720 }, scale = 'normal',
   const eventRanges = []
   await context.route('**/api/events?*', (route) => {
     eventRanges.push(new URL(route.request().url()).searchParams.get('start'))
+    if (failEvents) return route.fulfill({ status: 409, json: { error: { message: 'This event cannot be represented as a linked event.' } } })
     return route.fulfill({ json: fixtureEvents ?? (allDay ? [{
       id: 9001, calendar_id: 1, calendar_name: 'Family', title: 'All-day test',
       color: '#38bdf8', user_id: null, start_at: '2026-10-21T00:00:00Z',
@@ -1078,7 +1079,7 @@ try {
       await page.locator('.timegrid').waitFor()
       assert.equal(await star.getAttribute('aria-pressed'), 'false')
       await page.getByRole('button', { name: targetName, exact: true }).click()
-      await page.locator('.profile-nav button[aria-pressed=true]').filter({ hasText: targetName }).waitFor()
+      await page.locator('.profile-nav button[aria-pressed=true][aria-expanded]').filter({ hasText: targetName }).waitFor()
       await page.locator('.timegrid').waitFor()
       assert.equal(await star.getAttribute('aria-pressed'), 'true')
       await page.getByRole('link', { name: 'Settings', exact: true }).click()
@@ -1159,6 +1160,22 @@ try {
     console.log('PASS: personal importance defaults and marks, 25% star filter, per-profile persistence across devices, live linked calendar editing and membership revocation')
   }
 
+  {
+    const { context, page } = await open({ failEvents: true, viewport: { width: 390, height: 844 } })
+    await page.getByRole('alert').filter({ hasText: 'Could not load this week.' }).waitFor()
+    assert.equal(await page.getByRole('heading', { name: 'Calendar access', exact: true }).count(), 0)
+    await page.getByRole('link', { name: 'Settings', exact: true }).click()
+    await page.getByRole('button', { name: 'Display', exact: true }).click()
+    await page.getByRole('checkbox', { name: 'Hold and drag to create or move events', exact: true }).waitFor()
+    await page.getByRole('link', { name: 'Settings', exact: true }).click()
+    await page.getByRole('alert').filter({ hasText: 'Could not load this week.' }).waitFor()
+    await context.unroute('**/api/events?*')
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    await page.getByRole('alert').filter({ hasText: 'Could not load this week.' }).waitFor({ state: 'hidden' })
+    await context.close()
+  }
+  console.log('PASS: failed event loading stays inside the calendar with Settings and retry available')
+
   // Optional event linking and scoped saving through the real editor.
   {
     const admin = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' })
@@ -1197,7 +1214,7 @@ try {
       await page.getByRole('checkbox', { name: 'Link events to other calendars', exact: true }).check()
       await linkingSaved
       const gestureSaved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PATCH')
-      await page.getByRole('checkbox', { name: 'Hold and drag to create events', exact: true }).check()
+      await page.getByRole('checkbox', { name: 'Hold and drag to create or move events', exact: true }).check()
       await gestureSaved
       await page.getByRole('link', { name: 'Settings', exact: true }).click()
       await eventBlock('Event to link').click()
@@ -1209,6 +1226,7 @@ try {
       await page.getByRole('button', { name: 'Done', exact: true }).click()
       await page.getByRole('button', { name: 'Close event details', exact: true }).click()
       await page.getByRole('button', { name: targetName, exact: true }).click()
+      await page.locator('.profile-nav button[aria-pressed=true][aria-expanded]').filter({ hasText: targetName }).waitFor()
       await eventBlock('Event to link').waitFor()
       assert.equal(await page.locator('.calendar-picker__menu').count(), 0, 'an inactive profile should switch without opening the picker')
       assert.equal(await page.locator('.timegrid__important-count').count(), 0, 'count setting should be personal within each profile')
@@ -1245,13 +1263,114 @@ try {
   }
   console.log('PASS: optional live event-link action and recurring-save choices work through the editor')
 
+  // Drag real events with a shorter personal delay, preserving their durations.
+  {
+    const admin = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, hasTouch: true, serviceWorkers: 'block' })
+    let profile
+    try {
+      profile = (await (await admin.request.post('/api/admin/profiles', { data: { name: `Drag ${Date.now()}`, members: ['local-admin'] } })).json()).id
+      await admin.request.patch(`/api/settings?profile=${profile}`, { data: {
+        hold_to_create: true, long_press_ms: 350, show_important_counts: true,
+        day_start_hour: 0, day_end_hour: 24, display_scale: 'normal', time_format_24h: true,
+        first_day_of_week: 1, screensaver_enabled: false, sleep_enabled: false, burn_in_shift: false,
+      } })
+      const make = async (title, start_at, end_at, extra = {}) => {
+        const response = await admin.request.post(`/api/events?profile=${profile}`, { data: { calendar_id: 1,
+          title, start_at, end_at, important: true, timezone: 'Europe/Ljubljana', ...extra } })
+        assert.equal(response.status(), 201)
+        return response.json()
+      }
+      const timed = await make('Drag timed', '2026-10-21T12:00:00Z', '2026-10-21T13:30:00Z')
+      const series = await make('Drag series', '2026-10-21T08:00:00Z', '2026-10-21T09:00:00Z', { recurrence_rule:'FREQ=WEEKLY;COUNT=3' })
+      const allDay = await make('Drag all day', '2026-10-21T00:00:00Z', '2026-10-23T00:00:00Z', { all_day: true, timezone: null })
+      const page = await admin.newPage()
+      page.on('pageerror', (e) => errors.push(e.message))
+      await page.clock.install({ time: new Date('2026-10-21T12:00:00+02:00') })
+      await page.goto(`/calendar/week?profile=${profile}`)
+      const cdp = await admin.newCDPSession(page)
+      const drag = async (locator, dayIndex, dy) => {
+        await locator.scrollIntoViewIfNeeded()
+        await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 1000))
+        const rect = await locator.boundingBox(), column = await page.locator('.timegrid__col').nth(dayIndex).boundingBox()
+        const x = rect.x + rect.width / 2, y = rect.y + 3
+        await cdp.send('Input.dispatchTouchEvent', { type:'touchStart', touchPoints:[{x,y}] })
+        await page.clock.runFor(349)
+        assert.equal(await page.locator('[data-moving=true]').count(), 0)
+        await page.clock.runFor(2)
+        await page.locator('[data-moving=true]').first().waitFor()
+        assert.equal(await page.locator('.event-details').count(), 0)
+        await cdp.send('Input.dispatchTouchEvent', { type:'touchMove', touchPoints:[{x:column.x + column.width / 2,y:y+dy}] })
+        await cdp.send('Input.dispatchTouchEvent', { type:'touchEnd', touchPoints:[] })
+      }
+      const timedBlock = page.locator('.event-block').filter({ hasText:'Drag timed' })
+      const moved = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/events/${timed.id}` && r.request().method() === 'PATCH')
+      await drag(timedBlock, 3, 64)
+      assert.equal((await moved).status(), 200)
+      await page.getByRole('status').filter({ hasText:'Saving event position' }).waitFor({ state:'hidden' })
+      let saved = await (await admin.request.get(`/api/events/${timed.id}?profile=${profile}`)).json()
+      assert.equal(saved.start_at, '2026-10-22T14:00:00Z')
+      assert.equal(new Date(saved.end_at) - new Date(saved.start_at), 90 * 60_000)
+      assert.equal(await page.getByRole('dialog').count(), 0)
+      const chip = page.locator('.timegrid__alldaycell').nth(2).getByRole('button', { name:'Drag all day', exact:true })
+      const dayMoved = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/events/${allDay.id}` && r.request().method() === 'PATCH')
+      await drag(chip, 3, 0)
+      assert.equal((await dayMoved).status(), 200)
+      await page.getByRole('status').filter({ hasText:'Saving event position' }).waitFor({ state:'hidden' })
+      saved = await (await admin.request.get(`/api/events/${allDay.id}?profile=${profile}`)).json()
+      assert.equal(saved.start_at, '2026-10-22T00:00:00Z')
+      assert.equal(saved.end_at, '2026-10-24T00:00:00Z')
+      const seriesBlock = page.locator('.event-block').filter({ hasText:'Drag series' })
+      await drag(seriesBlock, 3, 32)
+      const choices = page.getByRole('dialog', { name:'Move repeating event', exact:true })
+      await choices.waitFor()
+      await choices.getByRole('button', { name:'Cancel', exact:true }).click()
+      saved = await (await admin.request.get(`/api/events/${series.id}?profile=${profile}`)).json()
+      assert.equal(saved.start_at, '2026-10-21T08:00:00Z')
+      await drag(seriesBlock, 3, 32)
+      await choices.getByRole('button', { name:'This event only', exact:true }).click()
+      await choices.waitFor({ state:'hidden' })
+      const rows = await (await admin.request.get(`/api/events?profile=${profile}&start=2026-10-19T00:00:00Z&end=2026-11-15T00:00:00Z`)).json()
+      const occurrences = rows.filter((e) => e.title === 'Drag series')
+      assert.equal(occurrences.length, 3)
+      assert.ok(occurrences.some((e) => e.start_at === '2026-10-22T09:00:00Z'))
+      await admin.route(`**/api/events/${timed.id}`, async (route) => {
+        if (route.request().method() === 'PATCH') return route.fulfill({ status:409,
+          json:{ error:{ message:'Move temporarily unavailable' } } })
+        return route.continue()
+      })
+      await drag(timedBlock, 4, 32)
+      await page.getByRole('alert').filter({ hasText:'Move temporarily unavailable' }).waitFor()
+      assert.equal(await page.getByRole('heading', { name:'Calendar access', exact:true }).count(), 0)
+      await admin.unroute(`**/api/events/${timed.id}`)
+      saved = await (await admin.request.get(`/api/events/${timed.id}?profile=${profile}`)).json()
+      assert.equal(saved.start_at, '2026-10-22T14:00:00Z', 'failed moves must restore the original position')
+      const badge = page.locator('.timegrid__important-count').first()
+      assert.equal(await badge.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(37, 99, 235)')
+      assert.ok(await badge.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)) >= 11)
+      await page.getByRole('link', { name:'Settings', exact:true }).click()
+      await page.getByRole('button', { name:'Display', exact:true }).click()
+      const delayInput = page.getByLabel('Long press delay (ms)', { exact:true })
+      assert.equal(await delayInput.inputValue(), '350')
+      const delaySaved = page.waitForResponse((r) => r.url().includes('/api/settings') && r.request().method() === 'PATCH')
+      await delayInput.fill('500')
+      await delayInput.press('Enter')
+      assert.equal((await delaySaved).status(), 200)
+      await page.reload()
+      assert.equal(await page.getByLabel('Long press delay (ms)', { exact:true }).inputValue(), '500')
+    } finally {
+      if (profile) await admin.request.patch(`/api/admin/profiles/${profile}`, { data:{ active:false } })
+      await admin.close()
+    }
+  }
+  console.log('PASS: configurable long presses move timed and all-day events, retain duration and ask recurring scope')
+
   // Compact editor and real touch duration selection, including holds over an existing event.
   for (const viewport of [{ width: 320, height: 640 }, { width: 390, height: 844 }, { width: 1280, height: 720 }]) {
     const fixture = { id: 88001, calendar_id: 1, calendar_name: 'Family', title: 'Under the finger',
       color: '#38bdf8', user_id: null, start_at: '2026-10-21T14:00:00+02:00',
       end_at: '2026-10-21T15:00:00+02:00', important: true, all_day: false,
       editable: true, recurring: false, origin: 'local', sync_state: 'synced' }
-    const { context, page } = await open({ viewport, fixtureEvents: [fixture], holdToCreate: true, showImportantCounts: true })
+    const { context, page } = await open({ viewport, fixtureEvents: [fixture], holdToCreate: true, showImportantCounts: true, longPressMs: 400 })
     try {
       assert.equal(await page.locator('.timegrid__dayhead').nth(2).getByLabel('1 important events', { exact: true }).count(), 1)
       assert.ok(await page.locator('.timegrid__dayhead').nth(2).evaluate((head) => {
@@ -1290,10 +1409,11 @@ try {
       await page.getByRole('button', { name: 'Cancel', exact: true }).click()
       await page.locator('.timegrid__body').evaluate((el) => { el.scrollTop = 11 * 32 })
       const rect = await block.boundingBox()
-      const x = rect.x + rect.width / 2, y = rect.y + 3
+      const x = rect.x + rect.width / 2, y = rect.y + 67
       const cdp = await context.newCDPSession(page)
+      await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 1000))
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
-      await page.clock.runFor(2990)
+      await page.clock.runFor(390)
       assert.equal(await page.locator('.event-draft').count(), 0)
       await page.clock.runFor(20)
       await page.locator('.event-draft').waitFor()
@@ -1304,26 +1424,26 @@ try {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
       await page.getByRole('heading', { name: 'New event', exact: true }).waitFor()
       assert.equal(await page.locator('.event-details').count(), 0)
-      assert.equal(await page.getByLabel('Starts', { exact: true }).inputValue(), '2026-10-21T14:00')
-      assert.equal(await page.getByLabel('Ends', { exact: true }).inputValue(), '2026-10-21T16:15')
+      assert.equal(await page.getByLabel('Starts', { exact: true }).inputValue(), '2026-10-21T16:00')
+      assert.equal(await page.getByLabel('Ends', { exact: true }).inputValue(), '2026-10-21T18:15')
       assert.equal(await page.getByLabel('Title', { exact: true }).evaluate((el) => document.activeElement === el), false)
       if (viewport.width === 390 && process.env.ARTIFACT_DIR) await page.screenshot({ path: `${process.env.ARTIFACT_DIR}/compact-event-editor.png` })
       await page.getByRole('button', { name: 'Cancel', exact: true }).click()
       if (viewport.width === 390) {
         const nextDay = await page.locator('.timegrid__col').nth(3).boundingBox()
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
-        await page.clock.runFor(3010)
+        await page.clock.runFor(410)
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: nextDay.x + nextDay.width / 2, y: y + 64 }] })
         assert.equal(await page.locator('.event-draft').count(), 2, 'cross-day selection should cover both days')
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
         await page.getByRole('heading', { name: 'New event', exact: true }).waitFor()
-        assert.equal(await page.getByLabel('Ends', { exact: true }).inputValue(), '2026-10-22T16:15')
+        assert.equal(await page.getByLabel('Ends', { exact: true }).inputValue(), '2026-10-22T18:15')
         await page.getByRole('button', { name: 'Cancel', exact: true }).click()
         const body = page.locator('.timegrid__body')
         await body.evaluate((el) => { el.scrollTop = 0 })
         const bodyRect = await body.boundingBox()
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: bodyRect.y + bodyRect.height - 20 }] })
-        await page.clock.runFor(3010)
+        await page.clock.runFor(410)
         await page.locator('.event-draft').waitFor()
         await page.clock.runFor(350)
         assert.ok(await body.evaluate((el) => el.scrollTop) > 0, 'armed selection should auto-scroll near the lower edge')
@@ -1334,7 +1454,7 @@ try {
 
     } finally { await context.close() }
   }
-  console.log('PASS: compact editor, one-row colour palette, no keyboard autofocus, important day count and three-second touch drag over existing events')
+  console.log('PASS: compact editor, one-row colour palette, no keyboard autofocus, important day count and configured-delay touch duration selection')
 
   assert.deepEqual(errors, [], 'browser JavaScript errors')
 } finally {

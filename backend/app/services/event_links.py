@@ -14,12 +14,12 @@ MARKER = 1 << 52
 
 
 def is_reference(event_id: int) -> bool:
-    return event_id < -MARKER
+    return -calendar_links.PROJECTION_MARKER < event_id < -MARKER
 
 
 def identifier(reference: EventReference) -> int:
     value = MARKER + reference.id
-    if value > (1 << 53) - 1:
+    if value >= calendar_links.PROJECTION_MARKER:
         raise HTTPException(409, "This event link cannot be represented.")
     return -value
 
@@ -37,7 +37,11 @@ def find_event(db, reference: EventReference) -> Event:
             or_(Event.google_event_id == remote, Event.recurring_event_id == remote)
         )
     else:
-        statement = statement.where(Event.id == int(key.split(":")[1]))
+        try:
+            local_id = int(key.split(":")[1])
+        except (ValueError, IndexError) as exc:
+            raise HTTPException(409, "The original event link is invalid.") from exc
+        statement = statement.where(Event.id == local_id)
     for event in sorted(db.scalars(statement), key=lambda row: bool(row.recurrence_rule)):
         if event.is_master and event.sync_state == "synced":
             continue
@@ -128,7 +132,7 @@ def list_events(db, start, end, selected_calendars, selected_users, q, serialize
                     continue
                 result.append(output(ref, target, serialize(source_db, instance)))
         except HTTPException as exc:
-            if exc.status_code not in (403, 404):
+            if exc.status_code not in (403, 404, 409):
                 raise
     return result
 

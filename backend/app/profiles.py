@@ -59,6 +59,7 @@ class ProfilePreference(RegistryBase):
     theme: Mapped[str | None] = mapped_column(String(30), nullable=True)
     enable_event_linking: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     show_important_counts: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    long_press_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     hold_to_create: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     highlight_important: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     hidden_calendar_ids: Mapped[list[int] | None] = mapped_column(

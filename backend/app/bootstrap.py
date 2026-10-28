@@ -15,6 +15,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "highlight_important": False,
     "enable_event_linking": False,
     "hold_to_create": False,
+    "long_press_ms": 750,
     "show_important_counts": False,
     "first_day_of_week": 0,  # 0=Sunday, 1=Monday
     "time_format_24h": False,

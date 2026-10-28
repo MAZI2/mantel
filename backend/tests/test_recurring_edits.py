@@ -239,3 +239,47 @@ def test_editor_refreshes_a_cached_google_master_after_external_repeat_changes(c
     assert client.get(path).json()["recurrence_rule"] == "FREQ=WEEKLY;COUNT=4"
     fake.events["series"]["recurrence"] = ["RRULE:FREQ=WEEKLY;COUNT=8"]
     assert client.get(path).json()["recurrence_rule"] == "FREQ=WEEKLY;COUNT=8"
+
+
+@pytest.mark.parametrize("scope", ["all", "future"])
+def test_dragging_weekly_series_to_new_weekday_rotates_rule_and_keeps_count(client, scope):
+    event_id = create_series(client, recurrence_rule="FREQ=WEEKLY;BYDAY=WE;COUNT=4")
+    changed = client.patch(
+        f"/api/events/{event_id}",
+        json={
+            "edit_scope": scope,
+            "occurrence_start": "2026-10-28T13:00:00Z",
+            "start_at": "2026-10-29T14:00:00Z",
+            "end_at": "2026-10-29T15:00:00Z",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    rows = listed(client)
+    assert len(rows) == 4
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    weekdays = [
+        datetime.fromisoformat(row["start_at"]).astimezone(ZoneInfo("Europe/Ljubljana")).weekday()
+        for row in rows
+    ]
+    assert weekdays == ([3] * 4 if scope == "all" else [2, 3, 3, 3])
+    assert "BYDAY=TH" in changed.json()["recurrence_rule"]
+
+
+def test_google_drag_across_local_midnight_uses_series_zone_for_weekday(client, google):
+    fake, _, _ = google
+    fake.events["series"]["start"]["timeZone"] = "Europe/Ljubljana"
+    fake.events["series"]["recurrence"] = ["RRULE:FREQ=WEEKLY;BYDAY=WE;COUNT=4"]
+    selected = listed(client)[1]
+    changed = client.patch(
+        f"/api/events/{selected['id']}",
+        json={
+            "edit_scope": "all",
+            "occurrence_start": selected["original_start_at"],
+            "start_at": "2026-10-28T23:30:00Z",
+            "end_at": "2026-10-29T00:30:00Z",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    assert "BYDAY=TH" in changed.json()["recurrence_rule"]

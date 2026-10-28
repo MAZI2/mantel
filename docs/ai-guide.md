@@ -351,3 +351,8 @@ With the personal `enable_event_linking` setting enabled, GET
 a repeating event. The returned ID is opaque; every event operation rechecks both
 profile memberships. Links stay within Mantel and are omitted from bearer feeds.
 `hold_to_create` is a separate personal per-profile boolean, also false by default.
+
+`long_press_ms` is personal per profile (default 750, integer 100–10000), and controls
+both hold-to-create and hold-to-move. `show_important_counts` remains an opt-in personal
+preference. Event IDs, including IDs projected through imported calendars, are opaque;
+never derive authorization or calendar membership by decoding them client-side.

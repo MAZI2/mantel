@@ -168,6 +168,7 @@ export interface AppSettings {
   highlight_important: boolean
   enable_event_linking: boolean
   hold_to_create: boolean
+  long_press_ms: number
   show_important_counts: boolean
   hidden_calendar_ids: number[]
   first_day_of_week: number

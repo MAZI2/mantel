@@ -104,7 +104,9 @@ def personal_calendar_visibility(
         return registry.get(ProfilePreference, key).hidden_calendar_ids
 
 
-def personal_boolean(identity: str, name: str, default: bool, value: bool | None = None) -> bool:
+def personal_boolean(
+    identity: str, name: str, default: bool | int, value: bool | int | None = None
+) -> bool | int:
     global_preference = name == "important_by_default"
     model = PersonalPreference if global_preference else ProfilePreference
     scope = current_profile.get()
@@ -162,6 +164,7 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
         ("highlight_important", False),
         ("enable_event_linking", False),
         ("hold_to_create", False),
+        ("long_press_ms", 750),
         ("show_important_counts", False),
     ):
         values[name] = personal_boolean(request.state.principal.identity, name, default)
@@ -197,6 +200,12 @@ def get_app_settings(request: Request, db: Session = Depends(get_db)) -> dict:
     ),
 )
 def update_app_settings(payload: dict, request: Request, db: Session = Depends(get_db)) -> dict:
+    if "long_press_ms" in payload:
+        delay = payload["long_press_ms"]
+        if type(delay) is not int or not 100 <= delay <= 10000:
+            raise HTTPException(
+                400, "Long press delay must be a whole number from 100 to 10000 ms."
+            )
     for name in (
         "important_by_default",
         "highlight_important",
@@ -232,6 +241,7 @@ def update_app_settings(payload: dict, request: Request, db: Session = Depends(g
         "highlight_important",
         "enable_event_linking",
         "hold_to_create",
+        "long_press_ms",
         "show_important_counts",
     ):
         if name in payload:
