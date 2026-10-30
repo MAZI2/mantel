@@ -43,7 +43,7 @@ function LongPressDelay() {
 export function OptionalEventSettings() {
   return <>
     <PersonalOption name="show_important_counts" label="Show important event counts" hint="Show the number of important visible events beside each date. Days without important events have no count." />
-    <PersonalOption name="enable_event_linking" label="Link events to other calendars" hint="Show Add to another calendar in event details. Links stay in Mantel and require access to both profiles." />
+    <PersonalOption name="enable_event_linking" label="Link events to other calendars" hint="Show Add to another calendar in event details. Added events are shared with everyone in the destination profile." />
     <PersonalOption name="hold_to_create" label="Hold and drag to create or move events" hint="Hold an empty spot to select a new event's duration. Hold an existing event to move it while keeping its duration." />
     <LongPressDelay />
   </>

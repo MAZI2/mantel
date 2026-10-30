@@ -45,16 +45,36 @@ def test_google_origin_link_inside_an_imported_calendar_remains_readable_and_edi
     )
     assert added.status_code == 201, added.text
     # The destination copy has no account or Google resource of its own.
-    shared_events = client.get("/api/events", params=WINDOW, headers=headers("local-admin", shared))
+    shared_events = client.get("/api/events", params=WINDOW, headers=headers(profile=shared))
     assert shared_events.status_code == 200
-    assert len([row for row in shared_events.json() if row["calendar_id"] == 1]) == 1
+    copies = [row for row in shared_events.json() if row["calendar_id"] == 1]
+    assert len(copies) == 1
     assert fake.inserted == []
+    # A destination-only member can edit the shared event, including its original
+    # Google resource, without gaining access to the source profile or credentials.
+    changed = client.patch(
+        f"/api/events/{copies[0]['id']}",
+        headers=headers(profile=shared),
+        json={"title": "Edited by destination member"},
+    )
+    assert changed.status_code == 200, changed.text
+    with RegistrySession() as registry:
+        scope = scope_for(registry.get(Profile, personal))
+    db.expire_all()
+    with profile_context(scope):
+        assert sync_engine.push_pending(db) == 1
+    assert fake.events["from-google"]["summary"] == "Edited by destination member"
+    assert fake.inserted == []
+    assert client.get("/api/accounts", headers=headers(profile=personal)).status_code == 403
     imported = link_calendar(client, shared, personal).json()
     listed = client.get("/api/events", params=WINDOW)
     assert listed.status_code == 200, listed.text
     projected = next(row for row in listed.json() if row["calendar_id"] == imported["id"])
     assert abs(projected["id"]) < 2**53
-    assert client.get(f"/api/events/{projected['id']}").json()["title"] == "Google original"
+    assert (
+        client.get(f"/api/events/{projected['id']}").json()["title"]
+        == "Edited by destination member"
+    )
     changed = client.patch(
         f"/api/events/{projected['id']}",
         json={

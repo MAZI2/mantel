@@ -172,11 +172,15 @@ between calendars. Recurring occurrences share the series mark. The personal def
 is global across profiles; the star filter is personal within the selected profile.
 
 Individual event links live in the registry without copied content, use a separate
-negative-ID namespace, and require both memberships for every read/write. Never expose
-them in bearer feeds. Event-link actions and hold-to-create are personal per-profile
+negative-ID namespace, and share the selected event with every destination member.
+Creating a link requires access to its source and destination; subsequent reads/writes
+require destination membership and active source/destination profiles, not source membership.
+Resolve only the stored event reference; never grant general access to the source profile.
+Never expose them in bearer feeds. Event-link actions and hold-to-create are personal per-profile
 options, disabled by default. The configurable hold gesture must leave normal scrolling untouched before it arms,
 suppress the following click, and never autofocus a text field. Empty-grid holds create;
 existing-event holds move without changing duration. Recurring moves require a scope.
 Calendar-wide imports may include individual references: preserve both ID namespaces
-and recheck every intermediate profile membership when projecting those references.
+and require both calendar-profile memberships, while individual references inside that
+calendar grant access only to their explicitly shared events.
 Event-loading failures must not prevent the profile shell or Settings from opening.

@@ -1,13 +1,14 @@
-"""Individual live event links, authorized against both profiles on every use."""
+"""Individual live events shared with every member of their destination profile."""
 
 from contextlib import contextmanager
 
 from fastapi import HTTPException
 from sqlalchemy import or_, select
 
+from ..db import profile_sessions
 from ..models import Calendar, Event
-from ..profile_context import current_identity, current_profile
-from ..profiles import EventReference, RegistrySession
+from ..profile_context import current_identity, current_profile, profile_context
+from ..profiles import EventReference, Membership, Principal, Profile, RegistrySession, scope_for
 from . import calendar_links, importance, recurrence
 
 MARKER = 1 << 52
@@ -59,20 +60,35 @@ def find_event(db, reference: EventReference) -> Event:
 
 @contextmanager
 def source(db, event_id: int):
-    scope = current_profile.get()
+    identity, scope = current_identity.get(), current_profile.get()
     with RegistrySession() as registry:
         reference = registry.get(EventReference, -event_id - MARKER)
         if reference is None or not scope or reference.destination_profile_id != scope.id:
             raise HTTPException(404, "Event not found.")
+        person = registry.get(Principal, identity) if identity else None
+        destination = registry.get(Profile, scope.id)
+        original = registry.get(Profile, reference.source_profile_id)
+        if (
+            person is None
+            or not person.enabled
+            or destination is None
+            or not destination.active
+            or registry.get(Membership, (identity, destination.id)) is None
+        ):
+            raise HTTPException(403, "Access to the destination profile is required.")
+        if original is None or not original.active:
+            raise HTTPException(404, "The original event is unavailable.")
+        source_scope = scope_for(original)
     target = db.get(Calendar, reference.destination_calendar_id)
     if target is None or target.is_linked:
         raise HTTPException(404, "The destination calendar is unavailable.")
-    link = Calendar(
-        source_profile_id=reference.source_profile_id,
-        source_calendar_id=reference.source_calendar_id,
-        name="Event link",
-    )
-    with calendar_links.source_calendar(link) as (source_db, _, _):
+    # Adding an individual event explicitly shares that event with the destination.
+    # Resolve only this stored reference; source membership still guards ordinary
+    # profile endpoints and whole-calendar imports.
+    with profile_context(source_scope), profile_sessions(source_scope.database_url)() as source_db:
+        calendar = source_db.get(Calendar, reference.source_calendar_id)
+        if calendar is None or calendar.is_linked:
+            raise HTTPException(404, "The original calendar is unavailable.")
         event = find_event(source_db, reference)
         yield reference, target, source_db, event
 

@@ -19,7 +19,7 @@ export function EventLinkForm({ event, onCancel }: { event: CalendarEvent; onCan
         {options.data?.map((option) => <option key={`${option.profile_id}:${option.calendar.id}`} value={`${option.profile_id}:${option.calendar.id}`}>{option.profile_name} · {option.calendar.name}</option>)}
       </select>
     </label>
-    <p className="hint">A live link inside Mantel. Edits and deletion affect the original. Access to both profiles is required.{event.recurring ? ' Links this occurrence.' : ''}</p>
+    <p className="hint">Everyone in the destination profile can see this event. Edits and deletion affect the original.{event.recurring ? ' Links this occurrence.' : ''}</p>
     {save.isSuccess ? <p role="status">Event linked.</p> : <button className="btn btn--primary" disabled={!selected || save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Adding…' : 'Add linked event'}</button>}
     <button className="btn" disabled={save.isPending} onClick={onCancel}>{save.isSuccess ? 'Done' : 'Cancel'}</button>
     {(save.error || options.error) && <p role="alert">{save.error?.message || options.error?.message}</p>}

@@ -348,8 +348,11 @@ changes relative to the selected occurrence.
 With the personal `enable_event_linking` setting enabled, GET
 /api/events/{id}/link-options lists accessible destination profiles/calendars. POST
 /api/events/{id}/links accepts `profile_id`, `calendar_id`, and `occurrence_start` for
-a repeating event. The returned ID is opaque; every event operation rechecks both
-profile memberships. Links stay within Mantel and are omitted from bearer feeds.
+a repeating event. Creating a link requires access to both profiles. The returned ID
+is opaque; subsequent event operations require destination membership, so everyone
+in that profile can see the added event and edit/delete it when the source calendar
+allows writing. This grants no access to unrelated source events or settings. Links
+stay within Mantel and are omitted from bearer feeds.
 `hold_to_create` is a separate personal per-profile boolean, also false by default.
 
 `long_press_ms` is personal per profile (default 750, integer 100–10000), and controls

@@ -183,10 +183,15 @@ must not grant source-profile access. Subscribe from the original profile instea
 In Display settings, **Link events to other calendars** enables **Add to another calendar**
 in event details. It is off by default and personal within the selected profile. The
 chosen destination receives a live reference inside Mantel, without copying provider
-credentials or creating an event in the destination Google/iCloud account. Reading or
-editing the reference always requires access to both profiles. Editing/deleting follows
-the original event. A recurring event links the selected occurrence; its reference
-follows scoped edits of that occurrence. Bearer feeds exclude these references.
+credentials or creating an event in the destination Google/iCloud account. Adding an
+event requires access to its source and destination. Once added, every member of the
+destination profile can see it, edit it or delete it, subject to the original calendar's
+write permissions. This shares only that event: the original profile, its other events
+and provider credentials remain private. Editing/deleting follows the original event.
+A recurring event links the selected occurrence; its reference follows scoped edits of
+that occurrence. Destination membership is rechecked on every read/write, and archiving
+either profile blocks access. Existing individual links follow this sharing rule too.
+Bearer feeds exclude these references.
 
 **Hold and drag to create or move events** is also personal per profile and off by default.
 A stationary hold on an empty time-grid spot arms a live duration selection. Holding
@@ -204,8 +209,9 @@ clicking another profile switches to it. Normal empty-grid clicks do nothing; us
 top-bar + button or enable hold-and-drag to create an event.
 
 Individual references can also appear through imported calendars. Their IDs remain
-opaque, and access is checked against the viewing profile, the imported calendar's
-profile and the original event's profile. A Google-origin event stays linked to its
+opaque, and access is checked against the viewing profile and the imported calendar's
+profile. An individual event shared into that calendar does not require membership of
+its original profile. A Google-origin event stays linked to its
 original resource: destination views create no additional Google event or connection;
 edits go through the original profile's normal provider queue. Unavailable references
 are isolated, and event loading errors leave the calendar shell, Settings and Retry

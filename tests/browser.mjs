@@ -1180,11 +1180,15 @@ try {
   // Optional event linking and scoped saving through the real editor.
   {
     const admin = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, serviceWorkers: 'block' })
-    let sourceId, targetId
+    const personId = `event-share-${Date.now()}`
+    let sourceId, targetId, member
     const sourceName = `Edit source ${Date.now()}`, targetName = `Edit target ${Date.now()}`
     try {
       sourceId = (await (await admin.request.post('/api/admin/profiles', { data: { name: sourceName, members: ['local-admin'] } })).json()).id
       targetId = (await (await admin.request.post('/api/admin/profiles', { data: { name: targetName, members: ['local-admin'] } })).json()).id
+      assert.equal((await admin.request.put(`/api/admin/people/${personId}`, { data: {
+        identity: personId, name: 'Destination member', profile_ids: [targetId], default_profile_id: targetId,
+      } })).status(), 200)
       const create = async (title, recurrence_rule = null) => {
         const response = await admin.request.post(`/api/events?profile=${sourceId}`, { data: {
           calendar_id: 1, title, recurrence_rule, important: true, timezone: 'Europe/Ljubljana',
@@ -1241,6 +1245,22 @@ try {
       await page.getByRole('button', { name: 'Save', exact: true }).click()
       await eventBlock('Edited from linked calendar').waitFor()
       assert.equal((await (await admin.request.get(`/api/events/${original.id}?profile=${sourceId}`)).json()).title, 'Edited from linked calendar')
+      member = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, serviceWorkers: 'block',
+        extraHTTPHeaders: { 'X-Mantel-Identity': personId, 'X-Mantel-Proxy-Secret': 'local-preview-identity-testing-only' } })
+      const memberPage = await member.newPage()
+      memberPage.on('pageerror', (e) => errors.push(e.message))
+      await memberPage.clock.install({ time: new Date('2026-10-21T12:00:00Z') })
+      await memberPage.goto(`/calendar/week?profile=${targetId}`)
+      const sharedBlock = memberPage.locator('.event-block').filter({ hasText: 'Edited from linked calendar' })
+      await sharedBlock.waitFor()
+      assert.equal(await memberPage.locator('.event-block').count(), 1, 'only the explicitly shared event should be visible')
+      assert.equal((await member.request.get(`/api/events/${original.id}?profile=${sourceId}`)).status(), 403)
+      await sharedBlock.click()
+      await memberPage.getByRole('button', { name: 'Edit', exact: true }).click()
+      await memberPage.getByLabel('Title', { exact: true }).fill('Edited by destination member')
+      await memberPage.getByRole('button', { name: 'Save', exact: true }).click()
+      await memberPage.locator('.event-block').filter({ hasText: 'Edited by destination member' }).waitFor()
+      assert.equal((await (await admin.request.get(`/api/events/${original.id}?profile=${sourceId}`)).json()).title, 'Edited by destination member')
       await page.getByRole('button', { name: sourceName, exact: true }).click()
       await eventBlock('Scoped weekly').click()
       await page.getByRole('button', { name: 'Edit', exact: true }).click()
@@ -1258,11 +1278,13 @@ try {
       assert.equal(rows.filter((e) => e.title === 'Scoped weekly').length, 2)
       assert.equal(rows.filter((e) => e.title === 'Only this occurrence').length, 1)
     } finally {
+      await member?.close()
+      await admin.request.delete(`/api/admin/people/${personId}`)
       for (const id of [targetId, sourceId]) if (id) await admin.request.patch(`/api/admin/profiles/${id}`, { data: { active: false } })
       await admin.close()
     }
   }
-  console.log('PASS: optional live event-link action and recurring-save choices work through the editor')
+  console.log('PASS: live event links are visible and editable by destination-only members; recurring-save choices work through the editor')
 
   // Drag real events with a shorter personal delay, preserving their durations.
   {
